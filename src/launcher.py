@@ -23,35 +23,43 @@ def wsl_to_win(path: Path) -> str:
 
 
 def is_wot_running() -> bool:
+    # /fi フィルタは日本語 Windows で動作しないため、全リストを取得して Python で判定する
     result = subprocess.run(
-        ["cmd.exe", "/c", "tasklist /fi \"imagename eq WorldOfTanks.exe\" /fo csv /nh"],
-        capture_output=True, text=True
+        ["cmd.exe", "/c", "tasklist /fo csv /nh"],
+        capture_output=True
     )
-    return "WorldOfTanks.exe" in result.stdout
+    return b"WorldOfTanks.exe" in result.stdout
 
 
 def kill_wot() -> None:
-    """実行中の WoT を強制終了する。"""
-    subprocess.run(
-        ["cmd.exe", "/c", "taskkill /IM WorldOfTanks.exe /F"],
-        capture_output=True
-    )
-    # プロセスが消えるまで待つ
-    for _ in range(10):
-        if not is_wot_running():
-            return
+    """
+    実行中の全 WoT プロセスを強制終了し、完全消滅を確認してから待機する。
+    複数インスタンスが残っているとミューテックス競合でクラッシュするため、
+    全プロセス消滅 + 追加 sleep で確実にクリーンな状態にする。
+    """
+    if not is_wot_running():
+        return
+
+    # 複数インスタンスが残っている場合を考慮して 2 回 kill する
+    for _ in range(2):
+        subprocess.run(
+            ["cmd.exe", "/c", "taskkill /IM WorldOfTanks.exe /F"],
+            capture_output=True
+        )
         time.sleep(1)
 
+    # 全プロセスが消えるまで待つ（最大 20 秒）
+    for _ in range(20):
+        if not is_wot_running():
+            break
+        time.sleep(1)
 
-def _log_session_start() -> int:
-    """現在の python.log のバイト数を返す（新セッション検出の基準）。"""
-    try:
-        return WOT_LOG.stat().st_size
-    except FileNotFoundError:
-        return 0
+    # ファイルロック・ミューテックス解放を待つ
+    # （すぐ再起動するとインスタンス競合で exit code 1 になる）
+    time.sleep(5)
 
 
-def wait_for_replay_start(log_offset: int, timeout: int = 120) -> bool:
+def wait_for_replay_start(log_offset: int, timeout: int = 180) -> bool:
     """
     リプレイ再生開始（BattleLoadingSpace）を python.log で検出する。
 
@@ -64,6 +72,9 @@ def wait_for_replay_start(log_offset: int, timeout: int = 120) -> bool:
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
+        # WoT が落ちていたら早期終了
+        if not is_wot_running():
+            return False
         try:
             with open(WOT_LOG, "r", encoding="utf-8", errors="replace") as f:
                 f.seek(log_offset)
@@ -78,7 +89,11 @@ def wait_for_replay_start(log_offset: int, timeout: int = 120) -> bool:
 
 def wait_for_replay_end(log_offset: int, timeout: int = 900) -> bool:
     """
-    リプレイ終了（onReplayTerminated）を python.log で検出する。
+    リプレイ終了を python.log で検出する。
+
+    コマンドライン起動のリプレイは onReplayTerminated の前に
+    "simpleDialog name=rw1"（ゲーム終了ダイアログ）が出る。
+    どちらかを検出したら終了とみなす。
 
     Args:
         log_offset: 起動前の python.log バイト数
@@ -93,7 +108,7 @@ def wait_for_replay_end(log_offset: int, timeout: int = 900) -> bool:
             with open(WOT_LOG, "r", encoding="utf-8", errors="replace") as f:
                 f.seek(log_offset)
                 content = f.read()
-            if "onReplayTerminated" in content:
+            if "onReplayTerminated" in content or 'name=rw1' in content:
                 return True
         except OSError:
             pass
@@ -123,19 +138,31 @@ def launch_replay(replay_path: Path, wait: bool = False) -> subprocess.Popen:
         kill_wot()
 
     win_replay = wsl_to_win(replay_path)
-
     print(f"起動: {wsl_to_win(WOT_EXE)}")
     print(f"リプレイ: {win_replay}")
 
-    log_offset = _log_session_start()
+    # log_offset を起動直前に記録（kill 後のシャットダウンログ込み）
+    try:
+        log_offset = WOT_LOG.stat().st_size
+    except FileNotFoundError:
+        log_offset = 0
 
-    # WSL2 から Windows exe を直接起動。cwd に WSL パスを渡すと Windows パスに変換される。
+    # WSL2 から Windows exe を直接起動
     proc = subprocess.Popen(
         [str(WOT_EXE), win_replay],
         cwd=str(WOT_DIR),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+    # ルートランチャーは win64/WorldOfTanks.exe を起動して即終了するため、
+    # 実際のゲームプロセスが tasklist に現れるまで待機する（最大 30 秒）
+    for _ in range(30):
+        if is_wot_running():
+            break
+        time.sleep(1)
+    else:
+        raise RuntimeError("WoT プロセスが起動しませんでした")
 
     if wait:
         print("リプレイ開始を待機中...")
@@ -150,7 +177,7 @@ def launch_replay(replay_path: Path, wait: bool = False) -> subprocess.Popen:
         else:
             print("警告: リプレイ終了の検出がタイムアウトしました")
 
-    return proc
+    return proc, log_offset
 
 
 if __name__ == "__main__":
@@ -165,5 +192,5 @@ if __name__ == "__main__":
         replay = Path(sys.argv[1])
 
     print(f"リプレイ: {replay.name}")
-    proc = launch_replay(replay, wait=True)
+    proc, _ = launch_replay(replay, wait=True)
     print(f"完了 (PID: {proc.pid})")
