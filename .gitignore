@@ -3,10 +3,8 @@ __pycache__/
 *.py[cod]
 .venv/
 
-# 生成物（大容量ファイル）
-output/*.mp4
-output/clips/
-output/frames/
+# 生成物（丸ごと除外）
+output/
 
 # Windows
 Thumbs.db
