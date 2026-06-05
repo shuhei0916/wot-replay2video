@@ -26,10 +26,13 @@ FFMPEG_WSL_PATHS = [
 
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
-# ステレオミキサーの候補デバイス名（日本語 / 英語 Windows 両対応）
+# システム音声キャプチャデバイスの候補名（優先順）
+# - VB-Audio Virtual Cable: vb-audio.com/Cable/ から無料でインストール可
+# - Stereo Mix: Realtek ドライバー使用時に有効化で利用可（NVIDIA 環境では非対応）
 STEREO_MIX_NAMES = [
-    "ステレオ ミキサー",
-    "Stereo Mix",
+    "CABLE Output",           # VB-Audio Virtual Cable（推奨）
+    "ステレオ ミキサー",        # Realtek ドライバー（日本語 Windows）
+    "Stereo Mix",             # Realtek ドライバー（英語 Windows）
     "Stereo mixer",
 ]
 
