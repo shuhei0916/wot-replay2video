@@ -1,10 +1,13 @@
 """
 WoT 画面を録画する。
-Windows 側の ffmpeg (gdigrab) を WSL2 から呼び出す。
+Windows 側の ffmpeg (gdigrab + dshow) を WSL2 から呼び出す。
+
+音声キャプチャには Windows の「ステレオ ミキサー」が必要。
+有効化手順: サウンドコントロールパネル → 録音タブ →
+           右クリック「無効なデバイスの表示」→「ステレオ ミキサー」を有効化
 """
 
 import subprocess
-import signal
 import sys
 import time
 from pathlib import Path
@@ -23,6 +26,13 @@ FFMPEG_WSL_PATHS = [
 
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
+# ステレオミキサーの候補デバイス名（日本語 / 英語 Windows 両対応）
+STEREO_MIX_NAMES = [
+    "ステレオ ミキサー",
+    "Stereo Mix",
+    "Stereo mixer",
+]
+
 
 def find_ffmpeg() -> str | None:
     """Windows 側の ffmpeg.exe のパスを返す。見つからなければ None。"""
@@ -30,11 +40,30 @@ def find_ffmpeg() -> str | None:
         if wsl_path.exists():
             return win_path
     result = subprocess.run(
-        ["powershell.exe", "-Command", "Get-Command ffmpeg -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source"],
+        ["powershell.exe", "-Command",
+         "Get-Command ffmpeg -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source"],
         capture_output=True, text=True
     )
     path = result.stdout.strip()
     return path if path else None
+
+
+def find_stereo_mix(win_ffmpeg: str) -> str | None:
+    """
+    有効なステレオミキサーデバイス名を返す。
+    dshow デバイス一覧を取得して候補名と照合する。
+    見つからなければ None（音声なしで録画を続行）。
+    """
+    result = subprocess.run(
+        ["powershell.exe", "-Command",
+         f'& "{win_ffmpeg}" -list_devices true -f dshow -i dummy 2>&1'],
+        capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
+    output = result.stdout + result.stderr
+    for name in STEREO_MIX_NAMES:
+        if name in output:
+            return name
+    return None
 
 
 def _wsl_to_win(path: Path) -> str:
@@ -44,11 +73,17 @@ def _wsl_to_win(path: Path) -> str:
     ).stdout.strip()
 
 
-def start_recording(output_path: Path, fps: int = 30,
-                    width: int = 1920, height: int = 1080,
-                    offset_x: int = 0, offset_y: int = 0) -> subprocess.Popen:
+def start_recording(
+    output_path: Path,
+    fps: int = 30,
+    width: int = 1920,
+    height: int = 1080,
+    offset_x: int = 0,
+    offset_y: int = 0,
+) -> subprocess.Popen:
     """
     ffmpeg gdigrab でデスクトップを録画開始する。
+    ステレオミキサーが有効であれば音声も同時録音する。
 
     Args:
         output_path: 出力ファイルパス（WSL パス）
@@ -61,25 +96,43 @@ def start_recording(output_path: Path, fps: int = 30,
     """
     win_ffmpeg = find_ffmpeg()
     if win_ffmpeg is None:
-        raise RuntimeError("ffmpeg.exe が見つかりません。winget install Gyan.FFmpeg で導入してください。")
+        raise RuntimeError(
+            "ffmpeg.exe が見つかりません。winget install Gyan.FFmpeg で導入してください。"
+        )
 
     win_output = _wsl_to_win(output_path)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # PowerShell 経由で起動（パスのスペース問題を回避）
-    ps_cmd = (
-        f'& "{win_ffmpeg}"'
-        f' -f gdigrab'
-        f' -framerate {fps}'
-        f' -offset_x {offset_x} -offset_y {offset_y}'
-        f' -video_size {width}x{height}'
-        f' -i desktop'
-        f' -c:v libx264'
-        f' -preset ultrafast'
-        f' -crf 23'
-        f' -pix_fmt yuv420p'
-        f' -y "{win_output}"'
-    )
+    # ステレオミキサーが使えるか確認
+    audio_device = find_stereo_mix(win_ffmpeg)
+    if audio_device:
+        print(f"音声デバイス検出: {audio_device}")
+        # 音声 + 映像を同時キャプチャ
+        ps_cmd = (
+            f'& "{win_ffmpeg}"'
+            f' -f dshow -i audio="{audio_device}"'
+            f' -f gdigrab -framerate {fps}'
+            f' -offset_x {offset_x} -offset_y {offset_y}'
+            f' -video_size {width}x{height}'
+            f' -i desktop'
+            f' -c:v libx264 -preset ultrafast -crf 23 -pix_fmt yuv420p'
+            f' -c:a aac -b:a 192k'
+            f' -y "{win_output}"'
+        )
+    else:
+        print("警告: ステレオミキサーが見つかりません。映像のみ録画します。")
+        print("  有効化: サウンドコントロールパネル → 録音タブ → 右クリック →")
+        print("         「無効なデバイスの表示」→「ステレオ ミキサー」を有効化")
+        # 映像のみ
+        ps_cmd = (
+            f'& "{win_ffmpeg}"'
+            f' -f gdigrab -framerate {fps}'
+            f' -offset_x {offset_x} -offset_y {offset_y}'
+            f' -video_size {width}x{height}'
+            f' -i desktop'
+            f' -c:v libx264 -preset ultrafast -crf 23 -pix_fmt yuv420p'
+            f' -y "{win_output}"'
+        )
 
     proc = subprocess.Popen(
         ["powershell.exe", "-Command", ps_cmd],
@@ -91,9 +144,7 @@ def start_recording(output_path: Path, fps: int = 30,
 
 
 def stop_recording(proc: subprocess.Popen, timeout: int = 15) -> None:
-    """
-    録画を正常終了させる。ffmpeg に 'q' を送って終了させる。
-    """
+    """録画を正常終了させる。ffmpeg に 'q' を送って終了させる。"""
     try:
         proc.stdin.write(b"q")
         proc.stdin.flush()
@@ -105,12 +156,14 @@ def stop_recording(proc: subprocess.Popen, timeout: int = 15) -> None:
 if __name__ == "__main__":
     import datetime
 
-    ffmpeg_info = find_ffmpeg()
-    if ffmpeg_info is None:
+    win_ffmpeg = find_ffmpeg()
+    if win_ffmpeg is None:
         print("ffmpeg が見つかりません")
         sys.exit(1)
 
-    print(f"ffmpeg: {ffmpeg_info[0]}")
+    audio = find_stereo_mix(win_ffmpeg)
+    print(f"ffmpeg: {win_ffmpeg}")
+    print(f"音声デバイス: {audio or '(なし - 映像のみ)'}")
 
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     out = OUTPUT_DIR / f"test_record_{ts}.mp4"

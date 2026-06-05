@@ -1,1 +1,12 @@
-replays/
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# 生成物（大容量ファイル）
+output/*.mp4
+output/clips/
+output/frames/
+
+# Windows
+Thumbs.db
