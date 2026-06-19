@@ -29,9 +29,12 @@ def _find_ffmpeg() -> str:
         r"C:\ffmpeg\ffmpeg-8.1.1-essentials_build\bin\ffmpeg.exe",
     ]
     for c in candidates:
-        result = subprocess.run([c, "-version"], capture_output=True)
-        if result.returncode == 0:
-            return c
+        try:
+            result = subprocess.run([c, "-version"], capture_output=True)
+            if result.returncode == 0:
+                return c
+        except FileNotFoundError:
+            pass
     raise RuntimeError("ffmpeg が見つかりません")
 
 
