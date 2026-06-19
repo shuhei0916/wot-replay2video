@@ -1,6 +1,6 @@
 """
 WoT クライアントを起動してリプレイを再生する。
-WSL2 から Windows の WorldOfTanks.exe を呼び出す。
+Windows ネイティブ Python から直接 WorldOfTanks.exe を呼び出す。
 """
 
 import subprocess
@@ -8,25 +8,24 @@ import sys
 import time
 from pathlib import Path
 
-WOT_DIR = Path("/mnt/x/Games/World_of_Tanks_ASIA")
+try:
+    import yaml
+    _cfg_path = Path(__file__).parent.parent / "config.yaml"
+    _cfg = yaml.safe_load(_cfg_path.read_text()) if _cfg_path.exists() else {}
+except Exception:
+    _cfg = {}
+
+_wot_cfg = _cfg.get("wot", {})
+
+WOT_DIR = Path(_wot_cfg.get("dir", r"C:\Games\World_of_Tanks_ASIA"))
 WOT_EXE = WOT_DIR / "WorldOfTanks.exe"
 WOT_LOG = WOT_DIR / "python.log"
 
 
-def wsl_to_win(path: Path) -> str:
-    """WSL パスを Windows パス文字列に変換する。"""
-    result = subprocess.run(
-        ["wslpath", "-w", str(path)],
-        capture_output=True, text=True, check=True
-    )
-    return result.stdout.strip()
-
-
 def is_wot_running() -> bool:
-    # /fi フィルタは日本語 Windows で動作しないため、全リストを取得して Python で判定する
     result = subprocess.run(
-        ["cmd.exe", "/c", "tasklist /fo csv /nh"],
-        capture_output=True
+        ["tasklist", "/fo", "csv", "/nh"],
+        capture_output=True,
     )
     return b"WorldOfTanks.exe" in result.stdout
 
@@ -40,22 +39,18 @@ def kill_wot() -> None:
     if not is_wot_running():
         return
 
-    # 複数インスタンスが残っている場合を考慮して 2 回 kill する
     for _ in range(2):
         subprocess.run(
-            ["cmd.exe", "/c", "taskkill /IM WorldOfTanks.exe /F"],
-            capture_output=True
+            ["taskkill", "/IM", "WorldOfTanks.exe", "/F"],
+            capture_output=True,
         )
         time.sleep(1)
 
-    # 全プロセスが消えるまで待つ（最大 20 秒）
     for _ in range(20):
         if not is_wot_running():
             break
         time.sleep(1)
 
-    # ファイルロック・ミューテックス解放を待つ
-    # （すぐ再起動するとインスタンス競合で exit code 1 になる）
     time.sleep(5)
 
 
@@ -72,7 +67,6 @@ def wait_for_replay_start(log_offset: int, timeout: int = 180) -> bool:
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        # WoT が落ちていたら早期終了
         if not is_wot_running():
             return False
         try:
@@ -116,16 +110,16 @@ def wait_for_replay_end(log_offset: int, timeout: int = 900) -> bool:
     return False
 
 
-def launch_replay(replay_path: Path, wait: bool = False) -> subprocess.Popen:
+def launch_replay(replay_path: Path, wait: bool = False) -> tuple:
     """
     WoT を起動して replay_path のリプレイを再生する。
 
     Args:
-        replay_path: .wotreplay ファイルの WSL パス
+        replay_path: .wotreplay ファイルの Windows パス
         wait: True なら再生終了まで待機する
 
     Returns:
-        起動した Popen オブジェクト
+        (起動した Popen オブジェクト, log_offset)
     """
     replay_path = Path(replay_path).resolve()
     if not replay_path.exists():
@@ -137,26 +131,21 @@ def launch_replay(replay_path: Path, wait: bool = False) -> subprocess.Popen:
         print("既存の WoT プロセスを終了します...")
         kill_wot()
 
-    win_replay = wsl_to_win(replay_path)
-    print(f"起動: {wsl_to_win(WOT_EXE)}")
-    print(f"リプレイ: {win_replay}")
+    print(f"起動: {WOT_EXE}")
+    print(f"リプレイ: {replay_path}")
 
-    # log_offset を起動直前に記録（kill 後のシャットダウンログ込み）
     try:
         log_offset = WOT_LOG.stat().st_size
     except FileNotFoundError:
         log_offset = 0
 
-    # WSL2 から Windows exe を直接起動
     proc = subprocess.Popen(
-        [str(WOT_EXE), win_replay],
+        [str(WOT_EXE), str(replay_path)],
         cwd=str(WOT_DIR),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
 
-    # ルートランチャーは win64/WorldOfTanks.exe を起動して即終了するため、
-    # 実際のゲームプロセスが tasklist に現れるまで待機する（最大 30 秒）
     for _ in range(30):
         if is_wot_running():
             break

@@ -25,8 +25,8 @@ CLIP_POST_SEC = 4.0      # イベント後の余白
 def _find_ffmpeg() -> str:
     """使用可能な ffmpeg バイナリパスを返す。"""
     candidates = [
-        "ffmpeg",                                      # WSL の ffmpeg
-        "/usr/bin/ffmpeg",
+        "ffmpeg",
+        r"C:\ffmpeg\ffmpeg-8.1.1-essentials_build\bin\ffmpeg.exe",
     ]
     for c in candidates:
         result = subprocess.run([c, "-version"], capture_output=True)

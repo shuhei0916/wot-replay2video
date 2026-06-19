@@ -6,14 +6,14 @@ OBS Studio の WebSocket API を使って WoT 画面を録画する。
   2. OBS を起動 → ツール → obs-websocket 設定
        「WebSocket サーバーを有効にする」にチェック
        サーバーポート: 4455
-       パスワードを設定し、下の OBS_PASSWORD に記載する
+       パスワードを設定し、config.yaml の obs.password に記載する
   3. OBS 側でシーン・映像ソース・音声を設定する
      （映像: 画面キャプチャ、音声: デスクトップ音声）
   4. pip install obsws-python
 """
 
 import shutil
-import subprocess
+import time
 from pathlib import Path
 
 try:
@@ -54,15 +54,6 @@ def _get_client() -> "obs.ReqClient":
         ) from e
 
 
-def _win_to_wsl(win_path: str) -> Path:
-    """Windows パス (C:\\...) を WSL パスに変換する。"""
-    result = subprocess.run(
-        ["wslpath", "-u", win_path],
-        capture_output=True, text=True, check=True,
-    )
-    return Path(result.stdout.strip())
-
-
 def start_recording() -> "obs.ReqClient":
     """
     OBS の録画を開始する。
@@ -88,18 +79,24 @@ def stop_recording(
         output_path: ファイルの移動先パス（None なら OBS のデフォルト保存先）
 
     Returns:
-        録画ファイルの WSL パス
+        録画ファイルのパス
     """
     resp = client.stop_record()
     client.disconnect()
 
-    obs_win_path: str = resp.output_path
-    recorded = _win_to_wsl(obs_win_path)
-    print(f"OBS 録画停止: {obs_win_path}")
+    # OBS が返すパスは Windows パス（例: C:\Users\...\recording.mp4）
+    recorded = Path(resp.output_path)
+    print(f"OBS 録画停止: {recorded}")
 
     if output_path is not None and recorded != output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(recorded), str(output_path))
-        return output_path
+        # OBS が MP4 を書き終えるまで待つ（最大 15 秒リトライ）
+        for attempt in range(15):
+            try:
+                shutil.move(str(recorded), str(output_path))
+                return output_path
+            except PermissionError:
+                time.sleep(1)
+        raise PermissionError(f"録画ファイルを移動できません（OBS がファイルを保持中）: {recorded}")
 
     return recorded
