@@ -2,7 +2,7 @@
 ハイライトイベントから YouTube Shorts 用動画を生成する。
 
 処理フロー:
-  1. イベントタイムスタンプ周辺をクリップ
+  1. イベントタイムスタンプ周辺をクリップ（重複除去済み）
   2. 各クリップを 9:16 縦型にクロップ（中央）
   3. クリップを結合して最大 60 秒の Shorts 動画を出力
 """
@@ -36,6 +36,30 @@ def _find_ffmpeg() -> str:
         except FileNotFoundError:
             pass
     raise RuntimeError("ffmpeg が見つかりません")
+
+
+def _dedup_clips(
+    events: list[HighlightEvent],
+    clip_duration: float,
+) -> list[HighlightEvent]:
+    """
+    スコア降順で選択しながら、時間が重複するイベントを除去する。
+
+    高スコアのイベントを優先し、そのクリップ範囲と重なる低スコアの
+    イベントをスキップする。
+    """
+    by_score = sorted(events, key=lambda e: e.score, reverse=True)
+    kept: list[HighlightEvent] = []
+    for e in by_score:
+        e_start = e.timestamp - CLIP_PRE_SEC
+        e_end   = e.timestamp + CLIP_POST_SEC
+        overlap = any(
+            not (e_end <= (k.timestamp - CLIP_PRE_SEC) or e_start >= (k.timestamp + CLIP_POST_SEC))
+            for k in kept
+        )
+        if not overlap:
+            kept.append(e)
+    return kept
 
 
 def clip_and_crop(
@@ -76,10 +100,13 @@ def clip_and_crop(
             "-ss", str(max(0, start)),
             "-i", str(video_path),
             "-t", str(duration),
-            "-vf", f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}",
+            "-vf", (
+                f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},"
+                f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:flags=lanczos"
+            ),
             "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "23",
+            "-preset", "slow",   # fast→slow: エンコード効率↑、ノイズ↓
+            "-crf", "18",        # 23→18: 高品質（ファイルサイズは増加）
             "-pix_fmt", "yuv420p",
             "-y",
             str(output_path),
@@ -122,12 +149,12 @@ def make_shorts(
         battle_end = battle_start_offset + battle_duration
         filtered = [e for e in events if battle_start_offset <= e.timestamp <= battle_end]
 
-    # スコア降順でソートし、合計 SHORTS_MAX_SEC 秒に収まる範囲で選択
     clip_duration = CLIP_PRE_SEC + CLIP_POST_SEC
-    selected = sorted(filtered, key=lambda e: e.score, reverse=True)
-
     max_clips = int(SHORTS_MAX_SEC // clip_duration)
-    selected = selected[:max_clips]
+
+    # 重複除去してからスコア上位を選択
+    deduped = _dedup_clips(filtered, clip_duration)
+    selected = sorted(deduped, key=lambda e: e.score, reverse=True)[:max_clips]
 
     if not selected:
         raise ValueError("選択されたハイライトイベントがありません")
