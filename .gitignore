@@ -3,8 +3,12 @@ __pycache__/
 *.py[cod]
 .venv/
 
-# 生成物（丸ごと除外）
+# 生成物・入力データ（丸ごと除外）
 output/
+replays/
+
+# ローカル設定（パスワード等を含むため除外）
+config.yaml
 
 # Windows
 Thumbs.db

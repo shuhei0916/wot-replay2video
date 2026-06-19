@@ -1,0 +1,4 @@
+obs:
+  host: localhost
+  port: 4455
+  password: ""  # OBS の obs-websocket パスワードをここに入力

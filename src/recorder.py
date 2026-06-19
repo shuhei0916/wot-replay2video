@@ -1,188 +1,105 @@
 """
-WoT 画面を録画する。
-Windows 側の ffmpeg (gdigrab + dshow) を WSL2 から呼び出す。
+OBS Studio の WebSocket API を使って WoT 画面を録画する。
 
-音声キャプチャには Windows の「ステレオ ミキサー」が必要。
-有効化手順: サウンドコントロールパネル → 録音タブ →
-           右クリック「無効なデバイスの表示」→「ステレオ ミキサー」を有効化
+セットアップ:
+  1. OBS Studio をインストール（https://obsproject.com/）
+  2. OBS を起動 → ツール → obs-websocket 設定
+       「WebSocket サーバーを有効にする」にチェック
+       サーバーポート: 4455
+       パスワードを設定し、下の OBS_PASSWORD に記載する
+  3. OBS 側でシーン・映像ソース・音声を設定する
+     （映像: 画面キャプチャ、音声: デスクトップ音声）
+  4. pip install obsws-python
 """
 
+import shutil
 import subprocess
-import sys
-import time
 from pathlib import Path
 
-# ffmpeg 候補（優先順）
-FFMPEG_WIN_PATHS = [
-    r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",         # winget install Gyan.FFmpeg
-    r"C:\Program Files\Shotcut\ffmpeg.exe",            # Shotcut 同梱 (gdigrab/x264 対応)
-    r"C:\Program Files\Lightworks\ffmpeg.exe",         # Lightworks 同梱
-]
-FFMPEG_WSL_PATHS = [
-    Path("/mnt/c/Program Files/ffmpeg/bin/ffmpeg.exe"),
-    Path("/mnt/c/Program Files/Shotcut/ffmpeg.exe"),
-    Path("/mnt/c/Program Files/Lightworks/ffmpeg.exe"),
-]
+try:
+    import obsws_python as obs
+except ImportError:
+    obs = None  # type: ignore
+
+try:
+    import yaml
+    _cfg_path = Path(__file__).parent.parent / "config.yaml"
+    _cfg = yaml.safe_load(_cfg_path.read_text()) if _cfg_path.exists() else {}
+except Exception:
+    _cfg = {}
+
+_obs_cfg = _cfg.get("obs", {})
 
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
-# システム音声キャプチャデバイスの候補名（優先順）
-# - VB-Audio Virtual Cable: vb-audio.com/Cable/ から無料でインストール可
-# - Stereo Mix: Realtek ドライバー使用時に有効化で利用可（NVIDIA 環境では非対応）
-STEREO_MIX_NAMES = [
-    "CABLE Output",           # VB-Audio Virtual Cable（推奨）
-    "ステレオ ミキサー",        # Realtek ドライバー（日本語 Windows）
-    "Stereo Mix",             # Realtek ドライバー（英語 Windows）
-    "Stereo mixer",
-]
+OBS_HOST = _obs_cfg.get("host", "localhost")
+OBS_PORT = _obs_cfg.get("port", 4455)
+OBS_PASSWORD = _obs_cfg.get("password", "")
 
 
-def find_ffmpeg() -> str | None:
-    """Windows 側の ffmpeg.exe のパスを返す。見つからなければ None。"""
-    for win_path, wsl_path in zip(FFMPEG_WIN_PATHS, FFMPEG_WSL_PATHS):
-        if wsl_path.exists():
-            return win_path
+def _get_client() -> "obs.ReqClient":
+    if obs is None:
+        raise ImportError(
+            "obsws-python が必要です: pip install obsws-python"
+        )
+    try:
+        return obs.ReqClient(
+            host=OBS_HOST, port=OBS_PORT, password=OBS_PASSWORD, timeout=10
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"OBS に接続できません: {e}\n"
+            "OBS Studio が起動中か確認してください。\n"
+            "ツール → obs-websocket 設定 → 「WebSocket サーバーを有効にする」"
+        ) from e
+
+
+def _win_to_wsl(win_path: str) -> Path:
+    """Windows パス (C:\\...) を WSL パスに変換する。"""
     result = subprocess.run(
-        ["powershell.exe", "-Command",
-         "Get-Command ffmpeg -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source"],
-        capture_output=True, text=True
+        ["wslpath", "-u", win_path],
+        capture_output=True, text=True, check=True,
     )
-    path = result.stdout.strip()
-    return path if path else None
+    return Path(result.stdout.strip())
 
 
-def find_stereo_mix(win_ffmpeg: str) -> str | None:
+def start_recording() -> "obs.ReqClient":
     """
-    有効なステレオミキサーデバイス名を返す。
-    dshow デバイス一覧を取得して候補名と照合する。
-    見つからなければ None（音声なしで録画を続行）。
-    """
-    result = subprocess.run(
-        ["powershell.exe", "-Command",
-         f'& "{win_ffmpeg}" -list_devices true -f dshow -i dummy 2>&1'],
-        capture_output=True, text=True, encoding="utf-8", errors="replace"
-    )
-    output = result.stdout + result.stderr
-    for name in STEREO_MIX_NAMES:
-        if name in output:
-            return name
-    return None
-
-
-def _wsl_to_win(path: Path) -> str:
-    return subprocess.run(
-        ["wslpath", "-w", str(path)],
-        capture_output=True, text=True, check=True
-    ).stdout.strip()
-
-
-def start_recording(
-    output_path: Path,
-    fps: int = 30,
-    width: int = 1920,
-    height: int = 1080,
-    offset_x: int = 0,
-    offset_y: int = 0,
-) -> subprocess.Popen:
-    """
-    ffmpeg gdigrab でデスクトップを録画開始する。
-    ステレオミキサーが有効であれば音声も同時録音する。
-
-    Args:
-        output_path: 出力ファイルパス（WSL パス）
-        fps: フレームレート
-        width/height: キャプチャ領域サイズ（WoT の解像度に合わせる）
-        offset_x/y: キャプチャ開始座標（マルチモニター環境でモニターを選択）
+    OBS の録画を開始する。
 
     Returns:
-        ffmpeg プロセス（stop_recording() で正常終了）
+        OBS クライアント（stop_recording() に渡す）
     """
-    win_ffmpeg = find_ffmpeg()
-    if win_ffmpeg is None:
-        raise RuntimeError(
-            "ffmpeg.exe が見つかりません。winget install Gyan.FFmpeg で導入してください。"
-        )
-
-    win_output = _wsl_to_win(output_path)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    # ステレオミキサーが使えるか確認
-    audio_device = find_stereo_mix(win_ffmpeg)
-    if audio_device:
-        print(f"音声デバイス検出: {audio_device}")
-        # 音声 + 映像を同時キャプチャ
-        ps_cmd = (
-            f'& "{win_ffmpeg}"'
-            f' -f dshow -i audio="{audio_device}"'
-            f' -f gdigrab -framerate {fps}'
-            f' -offset_x {offset_x} -offset_y {offset_y}'
-            f' -video_size {width}x{height}'
-            f' -i desktop'
-            f' -c:v libx264 -preset ultrafast -crf 23 -pix_fmt yuv420p'
-            f' -c:a aac -b:a 192k'
-            f' -y "{win_output}"'
-        )
-    else:
-        print("警告: ステレオミキサーが見つかりません。映像のみ録画します。")
-        print("  有効化: サウンドコントロールパネル → 録音タブ → 右クリック →")
-        print("         「無効なデバイスの表示」→「ステレオ ミキサー」を有効化")
-        # 映像のみ
-        ps_cmd = (
-            f'& "{win_ffmpeg}"'
-            f' -f gdigrab -framerate {fps}'
-            f' -offset_x {offset_x} -offset_y {offset_y}'
-            f' -video_size {width}x{height}'
-            f' -i desktop'
-            f' -c:v libx264 -preset ultrafast -crf 23 -pix_fmt yuv420p'
-            f' -y "{win_output}"'
-        )
-
-    proc = subprocess.Popen(
-        ["powershell.exe", "-Command", ps_cmd],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    return proc
+    client = _get_client()
+    client.start_record()
+    print("OBS 録画開始")
+    return client
 
 
-def stop_recording(proc: subprocess.Popen, timeout: int = 15) -> None:
-    """録画を正常終了させる。ffmpeg に 'q' を送って終了させる。"""
-    try:
-        proc.stdin.write(b"q")
-        proc.stdin.flush()
-        proc.wait(timeout=timeout)
-    except Exception:
-        proc.kill()
+def stop_recording(
+    client: "obs.ReqClient",
+    output_path: Path | None = None,
+) -> Path:
+    """
+    OBS の録画を停止し、録画ファイルのパスを返す。
 
+    Args:
+        client: start_recording() が返したクライアント
+        output_path: ファイルの移動先パス（None なら OBS のデフォルト保存先）
 
-if __name__ == "__main__":
-    import datetime
+    Returns:
+        録画ファイルの WSL パス
+    """
+    resp = client.stop_record()
+    client.disconnect()
 
-    win_ffmpeg = find_ffmpeg()
-    if win_ffmpeg is None:
-        print("ffmpeg が見つかりません")
-        sys.exit(1)
+    obs_win_path: str = resp.output_path
+    recorded = _win_to_wsl(obs_win_path)
+    print(f"OBS 録画停止: {obs_win_path}")
 
-    audio = find_stereo_mix(win_ffmpeg)
-    print(f"ffmpeg: {win_ffmpeg}")
-    print(f"音声デバイス: {audio or '(なし - 映像のみ)'}")
+    if output_path is not None and recorded != output_path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(recorded), str(output_path))
+        return output_path
 
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    out = OUTPUT_DIR / f"test_record_{ts}.mp4"
-
-    print(f"録画開始 → {out}")
-    print("Ctrl+C で停止")
-
-    proc = start_recording(out)
-
-    try:
-        while True:
-            time.sleep(1)
-            if proc.poll() is not None:
-                print("ffmpeg が予期せず終了しました")
-                break
-    except KeyboardInterrupt:
-        print("\n停止中...")
-        stop_recording(proc)
-        print(f"録画完了: {out}")
+    return recorded
