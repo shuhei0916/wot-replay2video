@@ -45,6 +45,7 @@ def detect_highlights(
     flash_threshold: float = 30.0,
     min_brightness: float = 40.0,
     cooldown_sec: float = 2.0,
+    skip_initial_sec: float = 40.0,
 ) -> list[HighlightEvent]:
     """
     動画を解析して射撃フラッシュイベントのリストを返す。
@@ -57,6 +58,7 @@ def detect_highlights(
         flash_threshold: ROI のフレーム間輝度差がこの値を超えたら射撃とみなす
         min_brightness: ローディング画面除外用の ROI 最低平均輝度
         cooldown_sec: 同種イベントを連続検出しないクールダウン秒数
+        skip_initial_sec: 先頭から除外する秒数（ローディング＋カウントダウン対策、デフォルト40秒）
 
     Returns:
         タイムスタンプ順に並んだ HighlightEvent のリスト
@@ -70,6 +72,7 @@ def detect_highlights(
         raise RuntimeError(f"動画を開けません: {video_path}")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    skip_frames = int(skip_initial_sec * fps)
     events: list[HighlightEvent] = []
     prev_brightness: float | None = None
     last_flash_time: float = -cooldown_sec
@@ -82,6 +85,10 @@ def detect_highlights(
 
             frame_idx = int(cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1
             timestamp = frame_idx / fps
+
+            # ローディング＋カウントダウン期間をスキップ
+            if frame_idx < skip_frames:
+                continue
 
             brightness = _center_brightness(frame)
 
