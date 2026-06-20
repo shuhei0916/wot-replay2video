@@ -67,6 +67,25 @@ def _read_blocks(data: bytes) -> tuple[dict, list]:
     return blocks
 
 
+def _vehicle_display_name(vehicle_tag: str) -> str:
+    """'japan-J28_O_I_100' → 'O I 100' のように表示名を抽出する。"""
+    after_nation = vehicle_tag.split("-", 1)[-1]  # 'J28_O_I_100'
+    after_code = after_nation.split("_", 1)[-1]   # 'O_I_100'
+    return after_code.replace("_", " ")
+
+
+def generate_title(info: "BattleInfo") -> str:
+    """BattleInfo からショート動画用タイトルを生成する。"""
+    vehicle = _vehicle_display_name(info.player_vehicle)
+    s = info.player_stats
+    result = "勝利" if info.player_won else "敗北"
+    survived = "" if s.survived else "（撃破）"
+    return (
+        f"【WoT】{vehicle} / {s.kills}kill / {s.damage_dealt:,}DMG"
+        f" / {info.map_name} / {result}{survived} #Shorts #WorldOfTanks"
+    )
+
+
 def parse_replay(path: Path) -> BattleInfo:
     """
     .wotreplay ファイルを解析して BattleInfo を返す。
