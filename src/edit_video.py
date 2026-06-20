@@ -102,11 +102,11 @@ def clip_and_crop(
             "-t", str(duration),
             "-vf", (
                 f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},"
-                f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}:flags=lanczos"
+                f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}"
             ),
             "-c:v", "libx264",
-            "-preset", "slow",   # fast→slow: エンコード効率↑、ノイズ↓
-            "-crf", "18",        # 23→18: 高品質（ファイルサイズは増加）
+            "-preset", "fast",
+            "-crf", "23",
             "-pix_fmt", "yuv420p",
             "-y",
             str(output_path),
@@ -150,11 +150,10 @@ def make_shorts(
         filtered = [e for e in events if battle_start_offset <= e.timestamp <= battle_end]
 
     clip_duration = CLIP_PRE_SEC + CLIP_POST_SEC
-    max_clips = int(SHORTS_MAX_SEC // clip_duration)
 
-    # 重複除去してからスコア上位を選択
+    # 重複除去してからスコア降順で選択（上限なし）
     deduped = _dedup_clips(filtered, clip_duration)
-    selected = sorted(deduped, key=lambda e: e.score, reverse=True)[:max_clips]
+    selected = sorted(deduped, key=lambda e: e.score, reverse=True)
 
     if not selected:
         raise ValueError("選択されたハイライトイベントがありません")

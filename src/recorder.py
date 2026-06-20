@@ -54,14 +54,23 @@ def _get_client() -> "obs.ReqClient":
         ) from e
 
 
+# リプレイ録画中にミュートするマイク入力ソース名
+_MIC_SOURCE = _obs_cfg.get("mic_source", "マイク")
+
+
 def start_recording() -> "obs.ReqClient":
     """
-    OBS の録画を開始する。
+    OBS の録画を開始する。マイク入力はリプレイ録画に不要なためミュートする。
 
     Returns:
         OBS クライアント（stop_recording() に渡す）
     """
     client = _get_client()
+    try:
+        client.set_input_mute(_MIC_SOURCE, True)
+        print(f"マイクをミュート: {_MIC_SOURCE}")
+    except Exception:
+        pass  # マイクソースが存在しない場合は無視
     client.start_record()
     print("OBS 録画開始")
     return client
@@ -82,6 +91,10 @@ def stop_recording(
         録画ファイルのパス
     """
     resp = client.stop_record()
+    try:
+        client.set_input_mute(_MIC_SOURCE, False)
+    except Exception:
+        pass
     client.disconnect()
 
     # OBS が返すパスは Windows パス（例: C:\Users\...\recording.mp4）
