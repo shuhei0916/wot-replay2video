@@ -70,7 +70,8 @@ def record_replay(replay_path: Path) -> Path:
     wot_proc, log_offset = launch_replay(replay_path)
 
     print("[2/5] リプレイ開始を待機中...")
-    if not wait_for_replay_start(log_offset, timeout=120):
+    battle_log_offset = wait_for_replay_start(log_offset, timeout=120)
+    if not battle_log_offset:
         wot_proc.kill()
         raise TimeoutError("リプレイ開始の検出がタイムアウトしました")
 
@@ -78,7 +79,7 @@ def record_replay(replay_path: Path) -> Path:
     rec_client = start_recording()
 
     print("[4/5] リプレイ終了を待機中...")
-    if not wait_for_replay_end(log_offset, timeout=900):
+    if not wait_for_replay_end(battle_log_offset, timeout=900):
         print("警告: リプレイ終了の検出がタイムアウトしました（強制終了）")
 
     print("[5/5] 録画停止・WoT 終了...")

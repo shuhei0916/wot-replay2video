@@ -54,7 +54,7 @@ def kill_wot() -> None:
     time.sleep(5)
 
 
-def wait_for_replay_start(log_offset: int, timeout: int = 180) -> bool:
+def wait_for_replay_start(log_offset: int, timeout: int = 180) -> int:
     """
     リプレイ再生開始（BattleLoadingSpace）を python.log で検出する。
 
@@ -63,22 +63,23 @@ def wait_for_replay_start(log_offset: int, timeout: int = 180) -> bool:
         timeout: 最大待機秒数
 
     Returns:
-        タイムアウト前に検出できた場合 True
+        BattleLoadingSpace 検出後のログオフセット（タイムアウト時は 0）
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
         if not is_wot_running():
-            return False
+            return 0
         try:
-            with open(WOT_LOG, "r", encoding="utf-8", errors="replace") as f:
+            with open(WOT_LOG, "rb") as f:
                 f.seek(log_offset)
-                content = f.read()
-            if "BattleLoadingSpace" in content:
-                return True
+                chunk = f.read()
+            idx = chunk.find(b"BattleLoadingSpace")
+            if idx >= 0:
+                return log_offset + idx + len(b"BattleLoadingSpace")
         except OSError:
             pass
         time.sleep(2)
-    return False
+    return 0
 
 
 def wait_for_replay_end(log_offset: int, timeout: int = 900) -> bool:
@@ -155,13 +156,15 @@ def launch_replay(replay_path: Path, wait: bool = False) -> tuple:
 
     if wait:
         print("リプレイ開始を待機中...")
-        if wait_for_replay_start(log_offset):
+        battle_offset = wait_for_replay_start(log_offset)
+        if battle_offset:
             print("リプレイ再生中...")
         else:
             print("警告: リプレイ開始の検出がタイムアウトしました")
+            battle_offset = log_offset
 
         print("リプレイ終了を待機中...")
-        if wait_for_replay_end(log_offset):
+        if wait_for_replay_end(battle_offset):
             print("リプレイ終了を検出しました")
         else:
             print("警告: リプレイ終了の検出がタイムアウトしました")
