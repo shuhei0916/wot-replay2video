@@ -69,10 +69,10 @@ def process_replays(replay_paths: list[Path]) -> None:
 
             done.add(replay.name)
             _save_done(done)
-            print(f"✓ 完了: {shorts_path.name}")
+            print(f"[OK] 完了: {shorts_path.name}")
 
         except Exception as e:
-            print(f"✗ エラー（スキップ）: {e}")
+            print(f"[NG] エラー（スキップ）: {e}")
             traceback.print_exc()
 
     print(f"\n全処理完了。{len(done)} 本が処理済みです。")
