@@ -99,6 +99,8 @@ def wait_for_replay_end(log_offset: int, timeout: int = 900) -> bool:
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
+        if not is_wot_running():
+            return True
         try:
             with open(WOT_LOG, "r", encoding="utf-8", errors="replace") as f:
                 f.seek(log_offset)
