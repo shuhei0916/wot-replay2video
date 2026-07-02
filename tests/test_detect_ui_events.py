@@ -102,13 +102,14 @@ class TestUIZones:
 
 # ---- 動画全体での検出 ----
 
-class TestDetectUIHighlights:
-    @pytest.fixture(scope="class")
-    def events(self):
-        if not REAL_VIDEO.exists():
-            pytest.skip("録画ファイルが存在しないためスキップ")
-        return detect_ui_highlights(REAL_VIDEO)
+@pytest.fixture(scope="module")
+def events():
+    if not REAL_VIDEO.exists():
+        pytest.skip("録画ファイルが存在しないためスキップ")
+    return detect_ui_highlights(REAL_VIDEO)
 
+
+class TestDetectUIHighlights:
     def test_returns_list(self, events):
         assert isinstance(events, list)
 

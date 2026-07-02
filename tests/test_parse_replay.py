@@ -1,15 +1,25 @@
 """
 parse_replay モジュールのテスト。
-replays/ 下のサンプルリプレイを使って期待値を固定する。
+tests/fixtures/ 下のサンプルリプレイを使って期待値を固定する。
 """
 
 import pytest
 from pathlib import Path
 
 # テスト用リプレイ（解析済みの既知ファイル）
-REPLAY_FILE = Path(__file__).parent.parent / "replays" / "20260604_1729_china-Ch20_Type58_115_sweden.wotreplay"
+REPLAY_FILE = Path(__file__).parent / "fixtures" / "20260604_1729_china-Ch20_Type58_115_sweden.wotreplay"
 
 from src.parse_replay import parse_replay, BattleInfo, PlayerStats
+
+
+@pytest.fixture(scope="module")
+def info():
+    return parse_replay(REPLAY_FILE)
+
+
+@pytest.fixture(scope="module")
+def stats(info):
+    return info.player_stats
 
 
 # ---- ファイル読み込み ----
@@ -27,10 +37,6 @@ class TestFileLoading:
 # ---- バトル基本情報 ----
 
 class TestBattleMetadata:
-    @pytest.fixture(scope="class")
-    def info(self):
-        return parse_replay(REPLAY_FILE)
-
     def test_player_name(self, info):
         assert info.player_name == "PrsimPrsim"
 
@@ -55,10 +61,6 @@ class TestBattleMetadata:
 # ---- バトル結果 ----
 
 class TestBattleResult:
-    @pytest.fixture(scope="class")
-    def info(self):
-        return parse_replay(REPLAY_FILE)
-
     def test_duration_seconds(self, info):
         assert info.duration_seconds == 365
 
@@ -72,10 +74,6 @@ class TestBattleResult:
 # ---- プレイヤー個人成績 ----
 
 class TestPlayerStats:
-    @pytest.fixture(scope="class")
-    def stats(self):
-        return parse_replay(REPLAY_FILE).player_stats
-
     def test_returns_player_stats(self, stats):
         assert isinstance(stats, PlayerStats)
 
@@ -120,10 +118,6 @@ class TestPlayerStats:
 # ---- 全車両リスト ----
 
 class TestAllVehicles:
-    @pytest.fixture(scope="class")
-    def info(self):
-        return parse_replay(REPLAY_FILE)
-
     def test_total_vehicles(self, info):
         assert len(info.all_vehicles) == 30
 
