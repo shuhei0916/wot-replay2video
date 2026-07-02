@@ -116,6 +116,20 @@ def record_replay(replay_path: Path) -> Path:
     return out_path
 
 
+def _detect_events(recording_path: Path):
+    """輝度フラッシュ + 音声スパイクの融合検出。音声が使えない場合は輝度のみ。"""
+    flash = detect_highlights(recording_path)
+    try:
+        from src.detect_audio_events import detect_audio_events, fuse_events
+        audio = detect_audio_events(recording_path, skip_initial_sec=40.0)
+        if audio:
+            print(f"  音声ピーク {len(audio)} 件 / 輝度フラッシュ {len(flash)} 件を融合")
+            return fuse_events(flash, audio)
+    except Exception as e:
+        print(f"警告: 音声解析に失敗（輝度検出のみ使用）: {e}")
+    return flash
+
+
 def make_highlight_shorts(recording_path: Path) -> Path | None:
     """
     録画からハイライトを検出して Shorts 動画を生成する。
@@ -124,7 +138,7 @@ def make_highlight_shorts(recording_path: Path) -> Path | None:
         Shorts 動画のパス。ハイライトが見つからない場合は None。
     """
     print("ハイライト検出中...")
-    events = detect_highlights(recording_path)
+    events = _detect_events(recording_path)
     print(f"  {len(events)} 件のショットイベントを検出")
 
     if not events:
@@ -137,11 +151,25 @@ def make_highlight_shorts(recording_path: Path) -> Path | None:
 
 
 def build_title(replay_path: Path) -> str:
-    """リプレイのメタデータからタイトルを生成する。解析失敗時はファイル名ベース。"""
+    """
+    リプレイのメタデータからタイトルを生成する。
+
+    youtube.llm_title が有効なら claude -p で生成し、失敗時は
+    テンプレート生成、解析自体の失敗時はファイル名ベースに落ちる。
+    """
     try:
-        return generate_title(parse_replay(replay_path))
+        info = parse_replay(replay_path)
     except Exception:
         return f"【WoT】{replay_path.stem} #Shorts #WorldOfTanks"
+
+    if load_config().get("youtube", {}).get("llm_title", False):
+        from src.llm_title import generate_title_llm
+        title = generate_title_llm(info)
+        if title:
+            return title
+        print("警告: LLM タイトル生成に失敗。テンプレートにフォールバックします")
+
+    return generate_title(info)
 
 
 def upload_shorts(video_path: Path, title: str) -> None:
