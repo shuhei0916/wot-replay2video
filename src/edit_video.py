@@ -14,7 +14,7 @@ from src.config import OUTPUT_DIR, find_ffmpeg
 from src.detect_highlights import HighlightEvent
 
 # Shorts 仕様
-SHORTS_MAX_SEC = 59      # YouTube Shorts 上限 60 秒（余裕を 1 秒持たせる）
+SHORTS_MAX_SEC = 150     # 動画の合計上限秒数（Shorts 自体は最大3分まで可）
 SHORTS_WIDTH = 1080
 SHORTS_HEIGHT = 1920
 CLIP_PRE_SEC = 3.0       # イベント前の余白

@@ -1,53 +1,59 @@
-# YouTube アップロード自動化 TODO
+# todo.md — タスク管理
 
-## セットアップ（手動・一度だけ）
+このファイルでプロジェクトのタスクを管理する（将来タスクも含む）。
+完了したら「完了済み」セクションに移す。
 
-- [ ] Google Cloud Console でプロジェクト作成
-- [ ] YouTube Data API v3 を有効化
-- [ ] OAuth 2.0 クライアント ID を作成（デスクトップアプリ）
-- [ ] `client_secrets.json` を `config/` に配置
-- [ ] 初回ブラウザ認証 → `config/token.json` 生成
+---
 
-## 実装
+## 次にやる
 
-- [ ] `src/upload_youtube.py` — YouTube Data API ラッパー
-  - [ ] OAuth 認証フロー（初回 + トークンリフレッシュ）
-  - [ ] 動画アップロード（再開可能アップロード / resumable upload）
-  - [ ] メタデータ設定（タイトル・説明・タグ・カテゴリ・公開設定）
-  - [ ] アップロード済みリスト管理（重複防止）
-- [ ] `src/batch.py` にアップロードステップを統合
-  - [ ] Shorts 生成後に自動アップロード
-  - [ ] アップロード失敗時はスキップ（動画は保持）
+- [ ] 無音期間（6/29〜7/2）に処理したリプレイの再録画・再バッチ実行
+      （processed.json から該当分を削除して `run_batch.py` を再実行）
+- [ ] 2026-07-02 の新着リプレイのバッチ実行
+- [ ] `config.yaml` の `youtube.privacy` を `"public"` に変更（公開運用開始時）
 
-## 設定
+## 改善
 
-- [ ] `config.yaml` に YouTube 設定セクションを追加
-  - [ ] `privacy`: `public` / `unlisted` / `private`
-  - [ ] `category_id`: ゲーム = 20
-  - [ ] `default_tags`: `["WorldOfTanks", "WoT", "Shorts"]`
+- [ ] `run_batch.py` のハードコードされたリプレイリストを廃止し、
+      Google Drive フォルダ（`G:\その他のパソコン\マイ コンピュータ\replays`）の
+      glob + processed.json フィルタに置き換える
+- [ ] OBS 自動起動 + 録画前プリフライトチェック
+      （obs64.exe を subprocess で起動 → WebSocket 接続待ち → ミュート/トラック/
+      デバイス検査 → 数秒テスト録画して volumedetect で音声確認 → 本番録画）
+- [ ] ハイライト検出の精度向上（下記「調査・将来」参照。
+      まずは録画音声の砲撃音スパイク検出を輝度検出と併用する案が有力）
 
-## テスト方針
+## 調査・将来
 
-外部プロセス（WoT・OBS・YouTube API通信）のラッパーはテスト対象外とする。
-モックにすると「モックのテスト」になり費用対効果が低いため。
+- [ ] **音声ベースのハイライト検出**: 録画の音声トラックから砲撃音（大音量の
+      過渡スパイク）を検出する。無音問題解決により利用可能になった。
+      輝度フラッシュとの AND/OR 融合で誤検出を削減できる見込み。
+- [ ] **イベント検知 mod の再挑戦**: リプレイ再生中にゲーム内イベント
+      （射撃・命中・撃破）をタイムスタンプ付きで JSON 出力する mod。
+      成功すれば CV 不要で正確なハイライト区間が得られる。
+      既存の着手物: `feature/mod-event-extraction` ブランチ、`mods/build_wotmod.py`、
+      `test_mod.py`（動作未達成）
+- [ ] **リプレイバイナリ復号の再調査**: 既知の旧 AES キーは v2.3.0.0 で不可。
+      コミュニティのパーサ実装・別キー/別暗号（Blowfish 等）の可能性を調査
+- [ ] `detect_ui_events.py`（UI 領域差分検出）のパイプライン統合 or 削除の判断
 
-テストを書く対象は「外部依存のない純粋ロジック」のみ：
-- `parse_replay.py`: パースロジック（既存テストあり）
-- `detect_highlights.py`: クリップ選択アルゴリズム（既存テストあり）
-- `upload_youtube.py`: 以下の純粋ロジック部分のみ
+## 完了済み
 
-t-wada 推奨の TDD サイクル（red → green → refactor）で実装する。
+- [x] YouTube アップロードパイプライン（OAuth2 / 再開可能アップロード / 重複防止）
+- [x] OBS 録画無音問題の解決（原因: Windows ミキサーで WoT が個別ミュート。
+      OBS は正常。診断: `ffprobe -select_streams a` で bit_rate ~2300 なら無音）
+- [x] `feature/youtube-upload` を main にマージ・push
+- [x] リファクタリング: `src/config.py` 新設（config 読み込み・ffmpeg 探索の集約）、
+      pipeline の責務分割、タイトル生成の二重実行解消
+- [x] Shorts 合計時間上限の実装（`select_clips()`、150秒 = 2分半）
+- [x] テストスイート修復: 81 passed / 9 skipped / 警告なし
+      （腐敗テスト修正・リプレイフィクスチャのコミット・edit_video テスト追加）
 
-## テスト
+---
 
-- [ ] `tests/test_upload_youtube.py`
-  - [ ] タイトル文字列からハッシュタグを抽出するロジック
-  - [ ] YouTube API 用メタデータ dict の構築ロジック
-  - [ ] アップロード済みチェックロジック（ログファイルの読み書き）
-  - [ ] HTTP ステータスコードに基づくリトライ判定ロジック
+## テスト方針（メモ）
 
-## 動作確認
-
-- [ ] テスト動画（非公開）で実際にアップロード成功を確認
-- [ ] `processed.json` と連携して重複アップロードしないことを確認
-- [ ] バッチ全体（録画→Shorts生成→アップロード）のE2E確認
+外部プロセス（WoT・OBS・YouTube API 通信）のラッパーはテスト対象外。
+モックにすると「モックのテスト」になり費用対効果が低い。
+テストを書くのは外部依存のない純粋ロジックのみ
+（parse_replay のパース、edit_video のクリップ選択、upload_youtube のメタデータ構築等）。
