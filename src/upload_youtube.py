@@ -121,6 +121,7 @@ def upload_video(
     """
     import time
     import googleapiclient.discovery
+    import googleapiclient.errors
     import googleapiclient.http
 
     config_dir = Path(__file__).parent.parent / "config"

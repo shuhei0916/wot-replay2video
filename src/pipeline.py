@@ -1,45 +1,30 @@
 """
-リプレイ再生 + 録画のパイプライン。
-launcher と recorder を組み合わせて一連の処理を実行する。
+リプレイ再生 + 録画 + Shorts 生成 + アップロードのパイプライン。
+
+各ステージは独立した関数で、process_replay() がオーケストレーションする:
+  record_replay()          リプレイを再生して録画（seekable MP4）
+  make_highlight_shorts()  ハイライト検出 → Shorts 生成
+  build_title()            リプレイ情報からタイトル生成
+  upload_shorts()          YouTube アップロード（失敗しても継続）
 """
 
 import datetime
 import subprocess
 import sys
-import time
 from pathlib import Path
 
-import yaml
-
+from src.config import OUTPUT_DIR, find_ffmpeg, load_config
 from src.launcher import launch_replay, wait_for_replay_start, wait_for_replay_end, kill_wot
-from src.recorder import start_recording, stop_recording, OUTPUT_DIR
+from src.recorder import start_recording, stop_recording
 from src.detect_highlights import detect_highlights
 from src.edit_video import make_shorts
+from src.parse_replay import parse_replay, generate_title
 from src.upload_youtube import upload_video
-
-_PROJECT_ROOT = Path(__file__).parent.parent
-_CONFIG_PATH = _PROJECT_ROOT / "config.yaml"
-
-FFMPEG_CANDIDATES = [
-    "ffmpeg",
-    r"C:\ffmpeg\ffmpeg-8.1.1-essentials_build\bin\ffmpeg.exe",
-]
-
-
-def _find_ffmpeg() -> str | None:
-    for c in FFMPEG_CANDIDATES:
-        try:
-            r = subprocess.run([c, "-version"], capture_output=True)
-            if r.returncode == 0:
-                return c
-        except FileNotFoundError:
-            pass
-    return None
 
 
 def _remux_faststart(src: Path) -> Path:
     """mp4 を上書きリムックスして moov アトムを先頭に移動する（seekable 化）。"""
-    ffmpeg = _find_ffmpeg()
+    ffmpeg = find_ffmpeg()
     if ffmpeg is None:
         print("警告: ffmpeg が見つかりません。シーク不可のまま出力します。")
         return src
@@ -94,51 +79,75 @@ def record_replay(replay_path: Path) -> Path:
         kill_wot()
 
     print("リムックス中（seekable 化）...")
-    _remux_faststart(out_path)
+    return _remux_faststart(out_path)
 
+
+def make_highlight_shorts(recording_path: Path) -> Path | None:
+    """
+    録画からハイライトを検出して Shorts 動画を生成する。
+
+    Returns:
+        Shorts 動画のパス。ハイライトが見つからない場合は None。
+    """
     print("ハイライト検出中...")
-    events = detect_highlights(out_path)
+    events = detect_highlights(recording_path)
     print(f"  {len(events)} 件のショットイベントを検出")
 
     if not events:
-        print("ハイライトが見つかりませんでした。録画のみ保存します。")
-        print(f"完了（録画のみ）: {out_path}")
-        return out_path
+        return None
 
-    shorts_path = out_path.with_name(out_path.stem + "_shorts.mp4")
+    shorts_path = recording_path.with_name(recording_path.stem + "_shorts.mp4")
     print(f"Shorts 生成中 → {shorts_path.name}")
-    make_shorts(out_path, events, shorts_path)
-
-    print(f"完了: {shorts_path}")
-    _try_upload(shorts_path, replay_path)
+    make_shorts(recording_path, events, shorts_path)
     return shorts_path
 
 
-def _try_upload(video_path: Path, replay_path: Path) -> None:
+def build_title(replay_path: Path) -> str:
+    """リプレイのメタデータからタイトルを生成する。解析失敗時はファイル名ベース。"""
+    try:
+        return generate_title(parse_replay(replay_path))
+    except Exception:
+        return f"【WoT】{replay_path.stem} #Shorts #WorldOfTanks"
+
+
+def upload_shorts(video_path: Path, title: str) -> None:
     """Shorts を YouTube にアップロードする。失敗してもパイプラインは継続する。"""
     try:
-        cfg = yaml.safe_load(_CONFIG_PATH.read_text(encoding="utf-8"))
-        yt = cfg.get("youtube", {})
-        privacy = yt.get("privacy", "private")
-        category_id = yt.get("category_id", "20")
-        default_tags = yt.get("default_tags", [])
-
-        from src.parse_replay import parse_replay, generate_title
-        try:
-            info = parse_replay(replay_path)
-            title = generate_title(info)
-        except Exception:
-            title = f"【WoT】{replay_path.stem} #Shorts #WorldOfTanks"
-
+        yt = load_config().get("youtube", {})
         upload_video(
             video_path=video_path,
             title=title,
-            privacy=privacy,
-            category_id=category_id,
-            extra_tags=default_tags,
+            privacy=yt.get("privacy", "private"),
+            category_id=yt.get("category_id", "20"),
+            extra_tags=yt.get("default_tags", []),
         )
     except Exception as e:
         print(f"警告: YouTube アップロードに失敗しました（動画は保持）: {e}")
+
+
+def process_replay(replay_path: Path) -> Path:
+    """
+    1本のリプレイを録画 → Shorts 生成 → アップロードまで処理する。
+
+    Returns:
+        Shorts 動画のパス（ハイライトなしの場合は録画ファイルのパス）
+    """
+    replay_path = Path(replay_path)
+    recording = record_replay(replay_path)
+
+    shorts_path = make_highlight_shorts(recording)
+    if shorts_path is None:
+        print(f"ハイライトが見つかりませんでした。録画のみ保存: {recording}")
+        return recording
+
+    title = build_title(replay_path)
+    title_path = shorts_path.with_suffix(".txt")
+    title_path.write_text(title, encoding="utf-8")
+    print(f"タイトル: {title}")
+
+    upload_shorts(shorts_path, title)
+    print(f"完了: {shorts_path}")
+    return shorts_path
 
 
 if __name__ == "__main__":
@@ -152,5 +161,5 @@ if __name__ == "__main__":
     else:
         replay = Path(sys.argv[1])
 
-    out = record_replay(replay)
+    out = process_replay(replay)
     print(f"\n動画ファイル: {out}")

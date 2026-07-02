@@ -21,16 +21,9 @@ try:
 except ImportError:
     obs = None  # type: ignore
 
-try:
-    import yaml
-    _cfg_path = Path(__file__).parent.parent / "config.yaml"
-    _cfg = yaml.safe_load(_cfg_path.read_text(encoding="utf-8")) if _cfg_path.exists() else {}
-except Exception:
-    _cfg = {}
+from src.config import load_config
 
-_obs_cfg = _cfg.get("obs", {})
-
-OUTPUT_DIR = Path(__file__).parent.parent / "output"
+_obs_cfg = load_config().get("obs", {})
 
 OBS_HOST = _obs_cfg.get("host", "localhost")
 OBS_PORT = _obs_cfg.get("port", 4455)
