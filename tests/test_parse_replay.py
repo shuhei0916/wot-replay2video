@@ -9,7 +9,7 @@ from pathlib import Path
 # テスト用リプレイ（解析済みの既知ファイル）
 REPLAY_FILE = Path(__file__).parent / "fixtures" / "20260604_1729_china-Ch20_Type58_115_sweden.wotreplay"
 
-from src.parse_replay import parse_replay, BattleInfo, PlayerStats
+from src.parse_replay import parse_replay, read_replay_version, BattleInfo, PlayerStats
 
 
 @pytest.fixture(scope="module")
@@ -32,6 +32,16 @@ class TestFileLoading:
     def test_returns_battle_info(self):
         info = parse_replay(REPLAY_FILE)
         assert isinstance(info, BattleInfo)
+
+
+# ---- 軽量バージョン読み取り ----
+
+class TestReadReplayVersion:
+    def test_known_version(self):
+        assert read_replay_version(REPLAY_FILE) == "2.3.0.0"
+
+    def test_missing_file_returns_empty(self):
+        assert read_replay_version(Path("nonexistent.wotreplay")) == ""
 
 
 # ---- バトル基本情報 ----

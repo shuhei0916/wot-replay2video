@@ -13,13 +13,37 @@ import subprocess
 import sys
 from pathlib import Path
 
-from src.config import OUTPUT_DIR, find_ffmpeg, load_config
+from src.config import OUTPUT_DIR, find_ffmpeg, find_ffprobe, load_config
 from src.launcher import launch_replay, wait_for_replay_start, wait_for_replay_end, kill_wot
 from src.recorder import start_recording, stop_recording
 from src.detect_highlights import detect_highlights
 from src.edit_video import make_shorts
 from src.parse_replay import parse_replay, generate_title
 from src.upload_youtube import upload_video
+
+
+class SilentRecordingError(RuntimeError):
+    """録画の音声が無音だった（システム的な問題なのでバッチは中断すべき）。"""
+
+
+# 正常録音は ~130-190kbps、無音録画は ~2.3kbps
+MIN_AUDIO_BITRATE = 10_000
+
+
+def _audio_bitrate(video_path: Path) -> int | None:
+    """録画の音声ビットレートを返す。検査できない場合は None。"""
+    ffprobe = find_ffprobe()
+    if ffprobe is None:
+        return None
+    r = subprocess.run(
+        [ffprobe, "-v", "error", "-show_entries", "stream=bit_rate",
+         "-select_streams", "a:0", "-of", "csv=p=0", str(video_path)],
+        capture_output=True, text=True,
+    )
+    try:
+        return int(r.stdout.strip())
+    except ValueError:
+        return None
 
 
 def _remux_faststart(src: Path) -> Path:
@@ -79,7 +103,17 @@ def record_replay(replay_path: Path) -> Path:
         kill_wot()
 
     print("リムックス中（seekable 化）...")
-    return _remux_faststart(out_path)
+    _remux_faststart(out_path)
+
+    # 無音録画ガード: 無音ならシステム的な問題（ミュート等）なので即座に検出する
+    bitrate = _audio_bitrate(out_path)
+    if bitrate is not None and bitrate < MIN_AUDIO_BITRATE:
+        raise SilentRecordingError(
+            f"録画が無音です (audio bitrate={bitrate} bps): {out_path}\n"
+            "Windows ミキサーの WoT 個別ミュート・OBS の音声設定を確認してください"
+        )
+
+    return out_path
 
 
 def make_highlight_shorts(recording_path: Path) -> Path | None:
@@ -114,6 +148,9 @@ def upload_shorts(video_path: Path, title: str) -> None:
     """Shorts を YouTube にアップロードする。失敗してもパイプラインは継続する。"""
     try:
         yt = load_config().get("youtube", {})
+        if not yt.get("enabled", True):
+            print("YouTube アップロードは無効化されています (youtube.enabled: false)")
+            return
         upload_video(
             video_path=video_path,
             title=title,

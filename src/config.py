@@ -44,3 +44,20 @@ def find_ffmpeg() -> str | None:
         except OSError:
             pass
     return None
+
+
+@lru_cache(maxsize=1)
+def find_ffprobe() -> str | None:
+    """使用可能な ffprobe のパスを返す。ffmpeg と同じ場所を優先して探す。"""
+    candidates = ["ffprobe"]
+    ffmpeg = find_ffmpeg()
+    if ffmpeg and ffmpeg != "ffmpeg":
+        sibling = Path(ffmpeg).with_name("ffprobe.exe")
+        candidates.insert(0, str(sibling))
+    for c in candidates:
+        try:
+            if subprocess.run([c, "-version"], capture_output=True).returncode == 0:
+                return c
+        except OSError:
+            pass
+    return None

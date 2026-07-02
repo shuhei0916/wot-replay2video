@@ -67,6 +67,22 @@ def _read_blocks(data: bytes) -> tuple[dict, list]:
     return blocks
 
 
+def read_replay_version(path: Path) -> str:
+    """
+    リプレイのクライアントバージョン（clientVersionFromExe）を返す。
+    Block 1 だけを読むため高速（Google Drive 上のファイルでも全読みしない）。
+    読めない場合は空文字。
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(12)
+            size = struct.unpack_from("<I", head, 8)[0]
+            b1 = json.loads(f.read(size).decode("utf-8"))
+        return b1.get("clientVersionFromExe", "")
+    except Exception:
+        return ""
+
+
 def _vehicle_display_name(vehicle_tag: str) -> str:
     """'japan-J28_O_I_100' → 'O I 100' のように表示名を抽出する。"""
     after_nation = vehicle_tag.split("-", 1)[-1]  # 'J28_O_I_100'

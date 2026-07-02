@@ -1,79 +1,48 @@
-"""夜間バッチ処理 実行スクリプト"""
+"""
+夜間バッチ実行スクリプト。
+
+Google Drive の replays フォルダから、現行クライアントで再生可能な
+リプレイを自動選択して処理する:
+  1. MIN_DATE 以降のファイルに絞る（旧クライアント世代を除外）
+  2. 最新リプレイと同じクライアントバージョンのものだけ残す
+  3. processed.json で処理済みを除外（src.batch 側で実施）
+"""
+
+import sys
 from pathlib import Path
+
 from src.batch import process_replays
+from src.parse_replay import read_replay_version
 
-BASE = Path(r"G:\その他のパソコン\マイ コンピュータ\replays")
+REPLAY_DIR = Path(r"G:\その他のパソコン\マイ コンピュータ\replays")
 
-replays = [
-    BASE / "20260624_1424_china-Ch04_T34_1_60_asia_miao.wotreplay",
-    BASE / "20260624_1431_japan-J28_O_I_100_29_el_hallouf.wotreplay",
-    BASE / "20260624_1609_germany-G04_PzVI_Tiger_I_10_hills.wotreplay",
-    BASE / "20260624_1619_italy-It27_M43_da_105_25_Bassoto_03_campania_big.wotreplay",
-    BASE / "20260624_1639_italy-It27_M43_da_105_25_Bassoto_06_ensk.wotreplay",
-    BASE / "20260624_1648_italy-It27_M43_da_105_25_Bassoto_19_monastery.wotreplay",
-    BASE / "20260624_1704_italy-It27_M43_da_105_25_Bassoto_34_redshire.wotreplay",
-    BASE / "20260625_0001_germany-G04_PzVI_Tiger_I_04_himmelsdorf.wotreplay",
-    BASE / "20260625_0023_italy-It27_M43_da_105_25_Bassoto_114_czech.wotreplay",
-    BASE / "20260625_1706_italy-It27_M43_da_105_25_Bassoto_101_dday.wotreplay",
-    BASE / "20260625_1710_germany-G04_PzVI_Tiger_I_44_north_america.wotreplay",
-    BASE / "20260625_1722_italy-It27_M43_da_105_25_Bassoto_08_ruinberg.wotreplay",
-    BASE / "20260625_1737_italy-It27_M43_da_105_25_Bassoto_95_lost_city_ctf.wotreplay",
-    BASE / "20260625_1744_italy-It27_M43_da_105_25_Bassoto_31_airfield.wotreplay",
-    BASE / "20260625_1750_japan-J28_O_I_100_44_north_america.wotreplay",
-    BASE / "20260625_1758_usa-A07_T20_07_lakeville.wotreplay",
-    BASE / "20260626_1328_italy-It27_M43_da_105_25_Bassoto_59_asia_great_wall.wotreplay",
-    BASE / "20260626_1343_china-Ch43_WZ_122_2_35_steppes.wotreplay",
-    BASE / "20260626_1353_china-Ch43_WZ_122_2_45_north_america.wotreplay",
-    BASE / "20260626_1401_china-Ch43_WZ_122_2_47_canada_a.wotreplay",
-    BASE / "20260626_1425_china-Ch43_WZ_122_2_38_mannerheim_line.wotreplay",
-    BASE / "20260626_1432_usa-A121_M26_Cologne_127_japort.wotreplay",
-    BASE / "20260626_1439_usa-A121_M26_Cologne_04_himmelsdorf.wotreplay",
-    BASE / "20260626_1553_germany-G04_PzVI_Tiger_I_02_malinovka.wotreplay",
-    BASE / "20260626_1608_italy-It27_M43_da_105_25_Bassoto_59_asia_great_wall.wotreplay",
-    BASE / "20260627_0012_usa-A130_Super_Hellcat_33_fjord.wotreplay",
-    BASE / "20260627_0020_usa-A130_Super_Hellcat_04_himmelsdorf.wotreplay",
-    BASE / "20260627_0027_usa-A130_Super_Hellcat_19_monastery.wotreplay",
-    BASE / "20260627_0037_usa-A130_Super_Hellcat_34_redshire.wotreplay",
-    BASE / "20260627_0042_usa-A130_Super_Hellcat_34_redshire.wotreplay",
-    BASE / "20260627_0053_usa-A130_Super_Hellcat_60_asia_miao.wotreplay",
-    BASE / "20260627_0106_usa-A39_T28_11_murovanka.wotreplay",
-    BASE / "20260627_1250_china-Ch04_T34_1_35_steppes.wotreplay",
-    BASE / "20260627_1302_usa-A39_T28_128_last_frontier_v.wotreplay",
-    BASE / "20260627_1319_usa-A39_T28_18_cliff.wotreplay",
-    BASE / "20260627_1335_usa-A39_T28_127_japort.wotreplay",
-    BASE / "20260627_1347_usa-A39_T28_115_sweden.wotreplay",
-    BASE / "20260627_1742_usa-A07_T20_19_monastery.wotreplay",
-    BASE / "20260627_1751_usa-A121_M26_Cologne_101_dday.wotreplay",
-    BASE / "20260627_1758_ussr-R74_SU100M1_06_ensk.wotreplay",
-    BASE / "20260627_1806_usa-A121_M26_Cologne_18_cliff.wotreplay",
-    BASE / "20260627_1812_china-Ch43_WZ_122_2_14_siegfried_line.wotreplay",
-    BASE / "20260627_1822_japan-J28_O_I_100_99_poland.wotreplay",
-    BASE / "20260627_1911_germany-G04_PzVI_Tiger_I_31_airfield.wotreplay",
-    BASE / "20260627_1923_usa-A130_Super_Hellcat_10_hills.wotreplay",
-    BASE / "20260627_1932_italy-It27_M43_da_105_25_Bassoto_59_asia_great_wall.wotreplay",
-    BASE / "20260627_1943_sweden-S29_UDES_14_5_35_steppes.wotreplay",
-    BASE / "20260627_2016_usa-A120_M48A5_45_north_america.wotreplay",
-    BASE / "20260627_2029_poland-Pl36_Wz_64GC_Bzyg_63_tundra.wotreplay",
-    BASE / "20260627_2041_poland-Pl11_45TP_Habicha_07_lakeville.wotreplay",
-    BASE / "20260628_1529_usa-A39_T28_99_poland.wotreplay",
-    BASE / "20260628_1541_usa-A39_T28_95_lost_city_ctf.wotreplay",
-    BASE / "20260628_1553_japan-J28_O_I_100_44_north_america.wotreplay",
-    BASE / "20260628_1605_usa-A121_M26_Cologne_114_czech.wotreplay",
-    BASE / "20260628_1612_ussr-R74_SU100M1_47_canada_a.wotreplay",
-    BASE / "20260628_1619_usa-A07_T20_101_dday.wotreplay",
-    BASE / "20260628_2209_china-Ch04_T34_1_02_malinovka.wotreplay",
-    BASE / "20260628_2215_usa-A07_T20_45_north_america.wotreplay",
-    BASE / "20260628_2252_usa-A07_T20_115_sweden.wotreplay",
-    BASE / "20260628_2301_ussr-R80_KV1_02_malinovka.wotreplay",
-    BASE / "20260628_2310_usa-A07_T20_63_tundra.wotreplay",
-    BASE / "20260628_2318_china-Ch04_T34_1_19_monastery.wotreplay",
-    BASE / "20260628_2327_china-Ch43_WZ_122_2_05_prohorovka.wotreplay",
-    BASE / "20260628_2336_ussr-R74_SU100M1_10_hills.wotreplay",
-    BASE / "20260628_2348_sweden-S29_UDES_14_5_18_cliff.wotreplay",
-    BASE / "20260629_0003_germany-G52_Pz38_NA_35_steppes.wotreplay",
-    BASE / "20260629_0035_italy-It26_CC_56_33_fjord.wotreplay",
-    BASE / "20260629_0043_italy-It26_CC_56_101_dday.wotreplay",
-    BASE / "20260629_0118_italy-It26_CC_56_36_fishing_bay.wotreplay",
-]
+# 現行クライアント世代（v2.3.x）の最初のリプレイ日
+MIN_DATE = "20260619"
 
-process_replays(replays)
+
+def collect_replays() -> list[Path]:
+    candidates = sorted(
+        p for p in REPLAY_DIR.glob("*.wotreplay") if p.name[:8] >= MIN_DATE
+    )
+    if not candidates:
+        return []
+
+    # 最新リプレイのバージョン = 現行クライアントで再生可能なバージョン
+    target_version = read_replay_version(candidates[-1])
+    if not target_version:
+        print(f"警告: 最新リプレイのバージョンを取得できません: {candidates[-1].name}")
+        return candidates
+
+    matched = [p for p in candidates if read_replay_version(p) == target_version]
+    skipped = len(candidates) - len(matched)
+    if skipped:
+        print(f"バージョン不一致でスキップ: {skipped} 本（対象バージョン: {target_version}）")
+    return matched
+
+
+if __name__ == "__main__":
+    replays = collect_replays()
+    if not replays:
+        print(f"対象リプレイがありません: {REPLAY_DIR}")
+        sys.exit(1)
+    process_replays(replays)
