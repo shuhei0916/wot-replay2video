@@ -8,14 +8,9 @@ import sys
 import time
 from pathlib import Path
 
-try:
-    import yaml
-    _cfg_path = Path(__file__).parent.parent / "config.yaml"
-    _cfg = yaml.safe_load(_cfg_path.read_text(encoding="utf-8")) if _cfg_path.exists() else {}
-except Exception:
-    _cfg = {}
+from src.config import load_config
 
-_wot_cfg = _cfg.get("wot", {})
+_wot_cfg = load_config().get("wot", {})
 
 WOT_DIR = Path(_wot_cfg.get("dir", r"C:\Games\World_of_Tanks_ASIA"))
 WOT_EXE = WOT_DIR / "WorldOfTanks.exe"
@@ -179,7 +174,7 @@ if __name__ == "__main__":
         project_root = Path(__file__).parent.parent
         replays = sorted((project_root / "replays").glob("*.wotreplay"))
         if not replays:
-            print("使い方: python launcher.py <replay.wotreplay>")
+            print("使い方: python -m src.launcher <replay.wotreplay>")
             sys.exit(1)
         replay = replays[0]
     else:

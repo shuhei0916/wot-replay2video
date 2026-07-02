@@ -10,9 +10,8 @@
 import subprocess
 from pathlib import Path
 
+from src.config import OUTPUT_DIR, find_ffmpeg
 from src.detect_highlights import HighlightEvent
-
-OUTPUT_DIR = Path(__file__).parent.parent / "output"
 
 # Shorts 仕様
 SHORTS_MAX_SEC = 59      # YouTube Shorts 上限 60 秒（余裕を 1 秒持たせる）
@@ -23,25 +22,14 @@ CLIP_POST_SEC = 4.0      # イベント後の余白
 
 
 def _find_ffmpeg() -> str:
-    """使用可能な ffmpeg バイナリパスを返す。"""
-    candidates = [
-        "ffmpeg",
-        r"C:\ffmpeg\ffmpeg-8.1.1-essentials_build\bin\ffmpeg.exe",
-    ]
-    for c in candidates:
-        try:
-            result = subprocess.run([c, "-version"], capture_output=True)
-            if result.returncode == 0:
-                return c
-        except FileNotFoundError:
-            pass
-    raise RuntimeError("ffmpeg が見つかりません")
+    """使用可能な ffmpeg バイナリパスを返す。見つからなければ RuntimeError。"""
+    ffmpeg = find_ffmpeg()
+    if ffmpeg is None:
+        raise RuntimeError("ffmpeg が見つかりません")
+    return ffmpeg
 
 
-def _dedup_clips(
-    events: list[HighlightEvent],
-    clip_duration: float,
-) -> list[HighlightEvent]:
+def _dedup_clips(events: list[HighlightEvent]) -> list[HighlightEvent]:
     """
     スコア降順で選択しながら、時間が重複するイベントを除去する。
 
@@ -60,6 +48,24 @@ def _dedup_clips(
         if not overlap:
             kept.append(e)
     return kept
+
+
+def select_clips(
+    events: list[HighlightEvent],
+    max_total_sec: float = SHORTS_MAX_SEC,
+) -> list[HighlightEvent]:
+    """
+    Shorts に収めるイベントを選択する。
+
+    重複除去後、スコア降順で合計時間が max_total_sec に収まる本数だけ
+    選び、タイムスタンプ順に並べて返す。
+    """
+    clip_duration = CLIP_PRE_SEC + CLIP_POST_SEC
+    max_clips = max(int(max_total_sec // clip_duration), 1)
+    deduped = _dedup_clips(events)
+    by_score = sorted(deduped, key=lambda e: e.score, reverse=True)
+    selected = by_score[:max_clips]
+    return sorted(selected, key=lambda e: e.timestamp)
 
 
 def clip_and_crop(
@@ -151,15 +157,11 @@ def make_shorts(
 
     clip_duration = CLIP_PRE_SEC + CLIP_POST_SEC
 
-    # 重複除去してからスコア降順で選択（上限なし）
-    deduped = _dedup_clips(filtered, clip_duration)
-    selected = sorted(deduped, key=lambda e: e.score, reverse=True)
+    # 重複除去 + スコア上位選択（合計 SHORTS_MAX_SEC 以内）→ 時系列順
+    selected = select_clips(filtered)
 
     if not selected:
         raise ValueError("選択されたハイライトイベントがありません")
-
-    # タイムスタンプ順に並べ直す
-    selected = sorted(selected, key=lambda e: e.timestamp)
 
     # 各クリップを生成
     clips_dir = OUTPUT_DIR / "clips"

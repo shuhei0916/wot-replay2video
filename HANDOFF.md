@@ -66,14 +66,32 @@ Windows ミキサーやゲーム内でミュートすると録画も無音にな
 
 ---
 
+## リファクタリング済み（2026-07-02, refactor/pipeline-cleanup）
+
+- `src/config.py` 新設: config.yaml 読み込みと ffmpeg 探索を集約
+  （従来は4ファイルに読み込みコードが重複し、encoding バグの温床だった）
+- `pipeline.py` を責務分割: `record_replay()`（録画のみ）/
+  `make_highlight_shorts()` / `build_title()` / `upload_shorts()` /
+  `process_replay()`（オーケストレーション）。タイトル生成の二重実行を解消。
+- `edit_video.py`: Shorts 60秒上限を実装（`select_clips()`。従来 `SHORTS_MAX_SEC`
+  が未使用でクリップ9本以上だと60秒超過するバグがあった）
+- テスト: 81 passed / 9 skipped / 警告なし
+  - 腐敗していた detect_highlights テストを修復（skip_initial_sec / イベント名）
+  - テスト用リプレイを `tests/fixtures/` にコミット（parse_replay の25 ERRORを解消）
+  - `tests/test_edit_video.py` 新規（クリップ選択ロジック）
+
+---
+
 ## 次のタスク（優先順）
 
 1. ~~OBS音声問題を解決~~（解決済み・上記参照）
 2. `config.yaml` の `privacy` を `"public"` に変更（現在 `"private"`）
-3. `feature/youtube-upload` を `main` にマージ
+3. ~~`feature/youtube-upload` を `main` にマージ~~（完了・push済み）
 4. 新しいリプレイのバッチ実行（2026-07-02 の新着リプレイあり。無音問題があった
    6/29〜7/2 処理分は音声なしで生成されているため再録画・再生成を検討）
 5. (任意) OBS 自動起動 + 録画前プリフライトチェックの実装
+6. (任意) `run_batch.py` のハードコードされたリプレイリストを Drive フォルダの
+   glob + processed.json フィルタに置き換え
 
 ---
 

@@ -12,10 +12,9 @@ import sys
 import traceback
 from pathlib import Path
 
-from src.parse_replay import generate_title, parse_replay
-from src.pipeline import record_replay
+from src.config import OUTPUT_DIR, load_config
+from src.pipeline import process_replay
 
-OUTPUT_DIR = Path(__file__).parent.parent / "output"
 DONE_LOG = OUTPUT_DIR / "processed.json"
 
 
@@ -54,22 +53,11 @@ def process_replays(replay_paths: list[Path]) -> None:
         print(f"[{i}/{len(targets)}] {replay.name}")
         print(f"{'='*60}")
         try:
-            shorts_path = record_replay(replay)
-
-            # タイトル生成・保存
-            try:
-                info = parse_replay(replay)
-                title = generate_title(info)
-            except Exception:
-                title = shorts_path.stem
-            title_path = shorts_path.with_suffix(".txt")
-            title_path.write_text(title, encoding="utf-8")
-            print(f"タイトル: {title}")
-            print(f"保存先:   {title_path}")
+            out_path = process_replay(replay)
 
             done.add(replay.name)
             _save_done(done)
-            print(f"[OK] 完了: {shorts_path.name}")
+            print(f"[OK] 完了: {out_path.name}")
 
         except Exception as e:
             print(f"[NG] エラー（スキップ）: {e}")
@@ -86,13 +74,9 @@ if __name__ == "__main__":
         paths = sorted(replay_dir.glob("*.wotreplay"))
         if not paths:
             # config.yaml の wot.dir/replays も探す
-            try:
-                import yaml
-                cfg = yaml.safe_load((Path(__file__).parent.parent / "config.yaml").read_text(encoding="utf-8"))
-                wot_dir = Path(cfg.get("wot", {}).get("dir", ""))
+            wot_dir = Path(load_config().get("wot", {}).get("dir", ""))
+            if wot_dir.name:
                 paths = sorted((wot_dir / "replays").glob("*.wotreplay"))
-            except Exception:
-                pass
 
     if not paths:
         print("使い方: python -m src.batch <replay1.wotreplay> [replay2 ...]")
