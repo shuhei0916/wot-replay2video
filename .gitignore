@@ -9,6 +9,8 @@ replays/
 
 # ローカル設定（パスワード等を含むため除外）
 config.yaml
+config/client_secrets.json
+config/token.json
 
 # Windows
 Thumbs.db

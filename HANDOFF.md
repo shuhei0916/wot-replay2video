@@ -1,192 +1,92 @@
-# 引継ぎ資料 — wot-replay2video
+# HANDOFF.md
 
-## プロジェクト概要
-
-World of Tanks のリプレイファイル (`.wotreplay`) を自動で録画・ハイライト編集して YouTube Shorts 動画を生成するパイプライン。
-
-```
-.wotreplay
-  → WoT クライアント自動起動・リプレイ再生
-  → OBS Studio で画面録画
-  → コンピュータビジョンでハイライト検出
-  → FFmpeg で Shorts 用縦動画 (9:16, 60秒以内) に編集
-```
+最終更新: 2026-07-02
 
 ---
 
-## 環境
+## 現在のブランチ
 
-| 項目 | 内容 |
-|------|------|
-| OS | Windows 11 + WSL2 (Ubuntu) |
-| WoT インストール先 | `X:\Games\World_of_Tanks_ASIA\` |
-| リプレイ保存先 | `X:\Games\World_of_Tanks_ASIA\replays\` |
-| 開発・実行環境 | WSL2 上の Python 3 (linuxbrew) |
-| プロジェクトルート (Windows) | `C:\Users\Ito\projects\wot-replay2video\` |
-| プロジェクトルート (WSL) | `/mnt/c/Users/Ito/projects/wot-replay2video/` |
-| 録画ツール | OBS Studio 32.x |
-| Python パッケージ管理 | `pip3 --break-system-packages` |
+`feature/youtube-upload`（mainへの未マージ）
 
 ---
 
-## セットアップ手順（新しい PC での初回設定）
+## 完了済み
 
-### 1. リポジトリのクローン
+### YouTube アップロードパイプライン
+- `src/upload_youtube.py` — OAuth2認証、再開可能アップロード、重複防止ログ
+- `src/pipeline.py` — Shorts生成後に `_try_upload()` で自動アップロード
+- `tests/test_upload_youtube.py` — 純粋ロジック24テスト（全パス）
+- `config/client_secrets.json` — Google Cloud OAuth認証情報（.gitignore済み）
+- `config/token.json` — 初回OAuth認証済み（.gitignore済み）
+- `config.yaml` に `youtube:` セクション追加（privacy/category_id/default_tags）
+- アップロードテスト成功: https://youtu.be/9p-ZfVG0Tqg（非公開、T34 1）
 
-```bash
-git clone <repo-url> /mnt/c/Users/<username>/projects/wot-replay2video
-cd /mnt/c/Users/<username>/projects/wot-replay2video
-```
-
-### 2. Python パッケージのインストール
-
-```bash
-pip3 install opencv-python numpy obsws-python pyyaml --break-system-packages
-```
-
-### 3. OBS Studio のインストール・設定
-
-1. https://obsproject.com/ からダウンロード・インストール
-2. OBS を起動
-3. **シーン・ソースの設定**（重要）：
-   - 「ソース」パネルの「+」→「画面キャプチャ」を追加
-   - WoT を表示するモニターを選択
-   - **「ソース」パネルの「+」→「映像キャプチャデバイス」は不要**
-4. **音声の設定**：
-   - 「設定」→「音声」→「デスクトップ音声」にスピーカー/ヘッドホンを設定
-   - VB-Audio Virtual Cable は不要（OBS の WASAPI ループバックで取得）
-5. **出力の設定**：
-   - 「設定」→「出力」→出力モード: `詳細`
-   - 録画フォーマット: `mp4`、エンコーダ: `NVIDIA NVENC H.264` または `x264`
-   - 「設定」→「映像」→解像度: `1920x1080`、FPS: `30`
-6. **WebSocket の設定**：
-   - 「ツール」→「obs-websocket 設定」
-   - 「WebSocket サーバーを有効にする」✅
-   - ポート: `4455`
-   - 「認証を有効にする」✅ → パスワードを設定
-
-### 4. config.yaml の作成
-
-`config.yaml.example` をコピーして `config.yaml` を作成し、OBS のパスワードを記入：
-
-```bash
-cp config.yaml.example config.yaml
-```
-
-```yaml
-obs:
-  host: localhost
-  port: 4455
-  password: "OBSで設定したパスワード"  # ツール → obs-websocket設定 → パスワードを表示
-```
-
-> `config.yaml` は `.gitignore` で除外済み。パスワードは git にコミットされない。
-
-### 5. 接続テスト
-
-OBS を起動した状態で：
-
-```bash
-python3 -c "
-import obsws_python as obs
-cl = obs.ReqClient(host='localhost', port=4455, password='YOUR_PASSWORD', timeout=10)
-print('接続成功:', cl.get_version().obs_version)
-cl.disconnect()
-"
-```
+### バグ修正（このセッションで発見・修正）
+- `src/launcher.py` / `src/recorder.py` / `src/batch.py`: `config.yaml` を
+  `read_text()` で読む際に `encoding="utf-8"` が抜けていた。
+  `"戦車"` などの日本語を含む設定でサイレントに失敗しパスワードが空になっていた。
+- `src/pipeline.py`: `wait_for_replay_start(timeout=120)` を 300 に延長
+  （WoT起動に120秒以上かかることがある）
 
 ---
 
-## 使い方
+## 解決済み: OBS 音声が無音問題（2026-07-02）
 
-### リプレイを処理する
+### 根本原因
+**Windows のサウンドミキサーで WoT アプリだけが個別ミュートされていた**
+（夜間バッチの静音化のためユーザーが設定）。アプリ個別ミュートは
+WASAPI ループバック（OBS のデスクトップ音声）にも乗らないため録画が無音になる。
 
-```bash
-# replays/ フォルダにリプレイを置いて実行
-python3 -m src.pipeline replays/<filename>.wotreplay
+### 切り分けの経緯
+- 6/19 の録画は音声あり（193kbps）、6/29 以降は無音（~2275bps）
+- OBS 設定は WebSocket 検査で正常（ミュートなし・0dB・トラック1割り当て済み）
+- OBS 単体テスト（テスト音を鳴らして録画）→ 正常録音 → OBS は無罪と確定
+- ミュート解除後の検証録画: 163kbps / mean -27.0dB / max -4.4dB で正常
 
-# replays/ 内の最新ファイルを自動選択
-python3 -m src.pipeline
+### 診断コマンド
 ```
+ffprobe -v error -show_streams -select_streams a -of default <ファイル.mp4>
+```
+`bit_rate` が 128000 程度なら正常、2000 前後なら無音。
+実音量は `ffmpeg -i <file> -af volumedetect -f null -` で確認。
 
-出力動画は `output/` フォルダに保存される。
+### 静音バッチ実行したい場合の注意
+Windows ミキサーやゲーム内でミュートすると録画も無音になる。
+静音化するなら VB-Cable 等の仮想オーディオデバイスを既定の再生デバイスに
+する方法を使う（スピーカーは鳴らず、OBS はそこから録れる）。
+
+### FFmpeg への乗り換えは見送り
+- 無音の原因は OBS ではなかった
+- この環境は DXGI キャプチャが黒画面になる実績があり（OBS method=1）、
+  ffmpeg の ddagrab も同じ罠にはまる可能性が高い
+- ffmpeg は WASAPI ループバック非対応（ステレオミキサー等の追加設定が必要）
+- 「人間による OBS 起動・設定チェック」のボトルネックは、パイプラインから
+  obs64.exe を自動起動し WebSocket でプリフライトチェック（ミュート/トラック/
+  デバイス確認 + 数秒テスト録画の volumedetect）する形で解消可能（未実装）
 
 ---
 
-## ディレクトリ構成
+## 次のタスク（優先順）
 
-```
-wot-replay2video/
-├── CLAUDE.md                  # Claude Code 用プロジェクト設定
-├── HANDOFF.md                 # この引継ぎ資料
-├── config.yaml                # OBS パスワード等（gitignore 済）
-├── config.yaml.example        # config.yaml のテンプレート（コミット済）
-├── requirements.txt           # Python 依存パッケージ一覧
-├── replays/                   # 処理対象の .wotreplay を置く
-├── output/                    # 生成動画の出力先（gitignore 済）
-├── src/
-│   ├── pipeline.py            # メインパイプライン（起動〜録画〜出力）
-│   ├── launcher.py            # WoT 起動・リプレイ再生・終了検出
-│   ├── recorder.py            # OBS WebSocket 録画制御
-│   ├── detect_highlights.py   # ハイライト検出（輝度フラッシュ）
-│   ├── detect_ui_events.py    # UI イベント検出（キル通知等）
-│   ├── edit_video.py          # FFmpeg ラッパー・Shorts 生成
-│   └── parse_replay.py        # .wotreplay メタデータ解析
-└── tests/                     # テストコード
-```
+1. ~~OBS音声問題を解決~~（解決済み・上記参照）
+2. `config.yaml` の `privacy` を `"public"` に変更（現在 `"private"`）
+3. `feature/youtube-upload` を `main` にマージ
+4. 新しいリプレイのバッチ実行（2026-07-02 の新着リプレイあり。無音問題があった
+   6/29〜7/2 処理分は音声なしで生成されているため再録画・再生成を検討）
+5. (任意) OBS 自動起動 + 録画前プリフライトチェックの実装
 
 ---
 
-## 現在の既知の問題・TODO
+## 主要ファイル
 
-### 問題: OBS で画面が録画されない（音声は録れる）
-
-**原因**: OBS のシーン設定で「画面キャプチャ」ソースが正しく追加されていない可能性が高い。
-
-**確認手順**:
-1. OBS の「ソース」パネルに「画面キャプチャ」が表示されているか確認
-2. なければ「+」→「画面キャプチャ」→ WoT を表示しているモニターを選択
-3. OBS のプレビュー画面に映像が映っているか確認してから録画
-
-### TODO（未実装・未完成）
-
-| 優先度 | 項目 | 説明 |
-|--------|------|------|
-| 高 | OBS 画面録画の修正 | 上記の「画面が録画されない」問題の解消 |
-| 高 | ハイライト検出の統合 | `detect_highlights.py` + `detect_ui_events.py` を `pipeline.py` に組み込む |
-| 高 | Shorts 動画生成 | `edit_video.py` でハイライト区間を縦動画に変換するエンドツーエンドテスト |
-| 中 | マルチ PC 対応 | Google Drive でリプレイファイルをメイン PC とサブ PC で同期 |
-| 低 | テスト整備 | パイプライン統合テストの追加 |
-
----
-
-## パイプラインの動作原理
-
-### 起動・終了検出 (`src/launcher.py`)
-
-WoT のログファイル (`python.log`) を監視してリプレイの開始・終了を検出する：
-- 開始: `Avatar.onBecomePlayer` がログに出現
-- 終了: `Arena.onDeleteVehicle` または `Battle results` がログに出現
-
-### OBS 録画制御 (`src/recorder.py`)
-
-`obsws-python` ライブラリ経由で OBS WebSocket API を呼び出す：
-- `obs.ReqClient.start_record()` で録画開始
-- `obs.ReqClient.stop_record()` で録画停止（戻り値に保存パスが含まれる）
-- OBS が返す Windows パスを `wslpath -u` で WSL パスに変換
-
----
-
-## 依存関係
-
-```
-opencv-python    # コンピュータビジョン（ハイライト検出）
-numpy            # 数値計算
-obsws-python     # OBS WebSocket クライアント
-pyyaml           # config.yaml 読み込み
-```
-
-インストール:
-```bash
-pip3 install -r requirements.txt --break-system-packages
-```
+| ファイル | 役割 |
+|---------|------|
+| `src/pipeline.py` | メインパイプライン（録画→ハイライト→Shorts→アップロード） |
+| `src/upload_youtube.py` | YouTube APIラッパー |
+| `src/recorder.py` | OBS WebSocket録画制御 |
+| `src/launcher.py` | WoT起動・リプレイ検出 |
+| `src/batch.py` | バッチ処理 |
+| `run_batch.py` | 実行スクリプト（リプレイリスト直書き） |
+| `config/client_secrets.json` | Google OAuth認証情報（要保管） |
+| `config/token.json` | アクセストークン（要保管） |
+| `output/uploaded.json` | アップロード済み動画ログ |

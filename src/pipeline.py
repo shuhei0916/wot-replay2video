@@ -9,10 +9,16 @@ import sys
 import time
 from pathlib import Path
 
+import yaml
+
 from src.launcher import launch_replay, wait_for_replay_start, wait_for_replay_end, kill_wot
 from src.recorder import start_recording, stop_recording, OUTPUT_DIR
 from src.detect_highlights import detect_highlights
 from src.edit_video import make_shorts
+from src.upload_youtube import upload_video
+
+_PROJECT_ROOT = Path(__file__).parent.parent
+_CONFIG_PATH = _PROJECT_ROOT / "config.yaml"
 
 FFMPEG_CANDIDATES = [
     "ffmpeg",
@@ -69,22 +75,23 @@ def record_replay(replay_path: Path) -> Path:
     print(f"[1/5] WoT 起動中: {replay_path.name}")
     wot_proc, log_offset = launch_replay(replay_path)
 
-    print("[2/5] リプレイ開始を待機中...")
-    battle_log_offset = wait_for_replay_start(log_offset, timeout=120)
-    if not battle_log_offset:
-        wot_proc.kill()
-        raise TimeoutError("リプレイ開始の検出がタイムアウトしました")
+    try:
+        print("[2/5] リプレイ開始を待機中...")
+        battle_log_offset = wait_for_replay_start(log_offset, timeout=300)
+        if not battle_log_offset:
+            raise TimeoutError("リプレイ開始の検出がタイムアウトしました")
 
-    print(f"[3/5] 録画開始 → {out_path.name}")
-    rec_client = start_recording()
+        print(f"[3/5] 録画開始 → {out_path.name}")
+        rec_client = start_recording()
 
-    print("[4/5] リプレイ終了を待機中...")
-    if not wait_for_replay_end(battle_log_offset, timeout=900):
-        print("警告: リプレイ終了の検出がタイムアウトしました（強制終了）")
+        print("[4/5] リプレイ終了を待機中...")
+        if not wait_for_replay_end(battle_log_offset, timeout=900):
+            print("警告: リプレイ終了の検出がタイムアウトしました（強制終了）")
 
-    print("[5/5] 録画停止・WoT 終了...")
-    stop_recording(rec_client, out_path)
-    kill_wot()
+        print("[5/5] 録画停止・WoT 終了...")
+        stop_recording(rec_client, out_path)
+    finally:
+        kill_wot()
 
     print("リムックス中（seekable 化）...")
     _remux_faststart(out_path)
@@ -103,7 +110,35 @@ def record_replay(replay_path: Path) -> Path:
     make_shorts(out_path, events, shorts_path)
 
     print(f"完了: {shorts_path}")
+    _try_upload(shorts_path, replay_path)
     return shorts_path
+
+
+def _try_upload(video_path: Path, replay_path: Path) -> None:
+    """Shorts を YouTube にアップロードする。失敗してもパイプラインは継続する。"""
+    try:
+        cfg = yaml.safe_load(_CONFIG_PATH.read_text(encoding="utf-8"))
+        yt = cfg.get("youtube", {})
+        privacy = yt.get("privacy", "private")
+        category_id = yt.get("category_id", "20")
+        default_tags = yt.get("default_tags", [])
+
+        from src.parse_replay import parse_replay, generate_title
+        try:
+            info = parse_replay(replay_path)
+            title = generate_title(info)
+        except Exception:
+            title = f"【WoT】{replay_path.stem} #Shorts #WorldOfTanks"
+
+        upload_video(
+            video_path=video_path,
+            title=title,
+            privacy=privacy,
+            category_id=category_id,
+            extra_tags=default_tags,
+        )
+    except Exception as e:
+        print(f"警告: YouTube アップロードに失敗しました（動画は保持）: {e}")
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from pathlib import Path
 try:
     import yaml
     _cfg_path = Path(__file__).parent.parent / "config.yaml"
-    _cfg = yaml.safe_load(_cfg_path.read_text()) if _cfg_path.exists() else {}
+    _cfg = yaml.safe_load(_cfg_path.read_text(encoding="utf-8")) if _cfg_path.exists() else {}
 except Exception:
     _cfg = {}
 
@@ -99,6 +99,8 @@ def wait_for_replay_end(log_offset: int, timeout: int = 900) -> bool:
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
+        if not is_wot_running():
+            return True
         try:
             with open(WOT_LOG, "r", encoding="utf-8", errors="replace") as f:
                 f.seek(log_offset)
