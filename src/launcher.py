@@ -11,7 +11,7 @@ from pathlib import Path
 try:
     import yaml
     _cfg_path = Path(__file__).parent.parent / "config.yaml"
-    _cfg = yaml.safe_load(_cfg_path.read_text()) if _cfg_path.exists() else {}
+    _cfg = yaml.safe_load(_cfg_path.read_text(encoding="utf-8")) if _cfg_path.exists() else {}
 except Exception:
     _cfg = {}
 

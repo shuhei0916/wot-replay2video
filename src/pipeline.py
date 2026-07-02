@@ -77,7 +77,7 @@ def record_replay(replay_path: Path) -> Path:
 
     try:
         print("[2/5] リプレイ開始を待機中...")
-        battle_log_offset = wait_for_replay_start(log_offset, timeout=120)
+        battle_log_offset = wait_for_replay_start(log_offset, timeout=300)
         if not battle_log_offset:
             raise TimeoutError("リプレイ開始の検出がタイムアウトしました")
 

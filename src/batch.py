@@ -88,7 +88,7 @@ if __name__ == "__main__":
             # config.yaml の wot.dir/replays も探す
             try:
                 import yaml
-                cfg = yaml.safe_load((Path(__file__).parent.parent / "config.yaml").read_text())
+                cfg = yaml.safe_load((Path(__file__).parent.parent / "config.yaml").read_text(encoding="utf-8"))
                 wot_dir = Path(cfg.get("wot", {}).get("dir", ""))
                 paths = sorted((wot_dir / "replays").glob("*.wotreplay"))
             except Exception:
