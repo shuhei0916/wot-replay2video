@@ -70,6 +70,17 @@ def should_retry(status_code: int, attempt: int, max_attempts: int = 3) -> bool:
     return status_code in RETRIABLE_STATUS_CODES and attempt < max_attempts
 
 
+_VIDEO_SUFFIX_RE = re.compile(r"_\d{8}_\d{6}(_shorts)?$")
+
+
+def replay_stem_from_video(video_stem: str) -> str:
+    """
+    動画ファイル名からリプレイファイルの stem を復元する。
+    例: 'foo_20260703_120449_shorts' → 'foo'
+    """
+    return _VIDEO_SUFFIX_RE.sub("", video_stem)
+
+
 # ---- API 通信（テスト対象外） ----
 
 UPLOAD_LOG = Path(__file__).parent.parent / "output" / "uploaded.json"

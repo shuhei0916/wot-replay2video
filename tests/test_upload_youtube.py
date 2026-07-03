@@ -12,8 +12,24 @@ from src.upload_youtube import (
     build_video_metadata,
     is_uploaded,
     mark_as_uploaded,
+    replay_stem_from_video,
     should_retry,
 )
+
+
+# ---- replay_stem_from_video ----
+
+class TestReplayStemFromVideo:
+    def test_strips_timestamp_and_shorts(self):
+        stem = "20260621_0052_japan-J28_O_I_100_45_north_america_20260703_120449_shorts"
+        assert replay_stem_from_video(stem) == "20260621_0052_japan-J28_O_I_100_45_north_america"
+
+    def test_strips_timestamp_only(self):
+        stem = "20260621_0052_japan-J28_O_I_100_45_north_america_20260703_120449"
+        assert replay_stem_from_video(stem) == "20260621_0052_japan-J28_O_I_100_45_north_america"
+
+    def test_no_suffix_unchanged(self):
+        assert replay_stem_from_video("foo_bar") == "foo_bar"
 
 
 # ---- extract_tags_from_title ----
