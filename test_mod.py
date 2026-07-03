@@ -15,10 +15,10 @@ if SHOT_LOG.exists():
     print("前回の shot_events.json を削除しました")
 
 print(f"リプレイ起動: {REPLAY.name}")
-proc, log_offset = launch_replay(REPLAY)
+proc, launched_at = launch_replay(REPLAY)
 
 print("バトル開始を待機中...")
-battle_offset = wait_for_replay_start(log_offset, timeout=120)
+battle_offset = wait_for_replay_start(launched_at, timeout=120)
 if not battle_offset:
     kill_wot()
     print("ERROR: バトル開始を検出できませんでした")

@@ -1,8 +1,14 @@
 """
 WoT クライアントを起動してリプレイを再生する。
 Windows ネイティブ Python から直接 WorldOfTanks.exe を呼び出す。
+
+python.log の監視はバイトオフセットではなく行タイムスタンプで行う。
+WoT は python.log を追記するが、容量上限で起動時に切り詰めることが
+あり、オフレット基準だと切り詰め後にマーカーを永遠に見逃す。
 """
 
+import datetime
+import re
 import subprocess
 import sys
 import time
@@ -145,30 +151,61 @@ def bring_wot_to_foreground(timeout: int = 60) -> bool:
     return False
 
 
-def wait_for_replay_start(log_offset: int, timeout: int = 180) -> int:
+_LOG_TS_RE = re.compile(rb"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.\d+:")
+
+
+def find_marker_since(data: bytes, marker: bytes, since: "datetime.datetime") -> int | None:
+    """
+    ログ内容 data から、since 以降のタイムスタンプ行にある marker を探す。
+
+    Returns:
+        マーカー直後のバイト位置。見つからなければ None。
+    """
+    pos = 0
+    while True:
+        idx = data.find(marker, pos)
+        if idx < 0:
+            return None
+        line_start = data.rfind(b"\n", 0, idx) + 1
+        m = _LOG_TS_RE.match(data[line_start:line_start + 40])
+        if m:
+            try:
+                ts = datetime.datetime.strptime(
+                    m.group(1).decode(), "%Y-%m-%d %H:%M:%S"
+                )
+                if ts >= since:
+                    return idx + len(marker)
+            except ValueError:
+                pass
+        pos = idx + len(marker)
+
+
+def wait_for_replay_start(launched_at: float, timeout: int = 180) -> int:
     """
     リプレイ再生開始（BattleLoadingSpace）を python.log で検出する。
 
+    launched_at（エポック秒）より新しいタイムスタンプの行だけを対象に
+    するため、過去セッションの残骸やログの切り詰めに影響されない。
+
     Args:
-        log_offset: 起動前の python.log バイト数
+        launched_at: WoT を起動したエポック秒（launch_replay の戻り値）
         timeout: 最大待機秒数
 
     Returns:
         BattleLoadingSpace 検出後のログオフセット（タイムアウト時は 0）
     """
     deadline = time.time() + timeout
+    since = datetime.datetime.fromtimestamp(launched_at - 2)
     while time.time() < deadline:
         if not is_wot_running():
             return 0
         try:
-            with open(WOT_LOG, "rb") as f:
-                f.seek(log_offset)
-                chunk = f.read()
-            idx = chunk.find(b"BattleLoadingSpace")
-            if idx >= 0:
-                return log_offset + idx + len(b"BattleLoadingSpace")
+            data = WOT_LOG.read_bytes()
         except OSError:
-            pass
+            data = b""
+        pos = find_marker_since(data, b"BattleLoadingSpace", since)
+        if pos is not None:
+            return pos
         time.sleep(2)
     return 0
 
@@ -213,7 +250,8 @@ def launch_replay(replay_path: Path, wait: bool = False) -> tuple:
         wait: True なら再生終了まで待機する
 
     Returns:
-        (起動した Popen オブジェクト, log_offset)
+        (起動した Popen オブジェクト, 起動エポック秒)
+        起動エポック秒は wait_for_replay_start() にそのまま渡す
     """
     replay_path = Path(replay_path).resolve()
     if not replay_path.exists():
@@ -228,10 +266,7 @@ def launch_replay(replay_path: Path, wait: bool = False) -> tuple:
     print(f"起動: {WOT_EXE}")
     print(f"リプレイ: {replay_path}")
 
-    try:
-        log_offset = WOT_LOG.stat().st_size
-    except FileNotFoundError:
-        log_offset = 0
+    launched_at = time.time()
 
     proc = subprocess.Popen(
         [str(WOT_EXE), str(replay_path)],
@@ -249,12 +284,12 @@ def launch_replay(replay_path: Path, wait: bool = False) -> tuple:
 
     if wait:
         print("リプレイ開始を待機中...")
-        battle_offset = wait_for_replay_start(log_offset)
+        battle_offset = wait_for_replay_start(launched_at)
         if battle_offset:
             print("リプレイ再生中...")
         else:
             print("警告: リプレイ開始の検出がタイムアウトしました")
-            battle_offset = log_offset
+            battle_offset = 0
 
         print("リプレイ終了を待機中...")
         if wait_for_replay_end(battle_offset):
@@ -262,7 +297,7 @@ def launch_replay(replay_path: Path, wait: bool = False) -> tuple:
         else:
             print("警告: リプレイ終了の検出がタイムアウトしました")
 
-    return proc, log_offset
+    return proc, launched_at
 
 
 if __name__ == "__main__":

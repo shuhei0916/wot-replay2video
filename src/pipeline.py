@@ -102,11 +102,11 @@ def record_replay(replay_path: Path) -> Path:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print(f"[1/5] WoT 起動中: {replay_path.name}")
-    wot_proc, log_offset = launch_replay(replay_path)
+    wot_proc, launched_at = launch_replay(replay_path)
 
     try:
         print("[2/5] リプレイ開始を待機中...")
-        battle_log_offset = wait_for_replay_start(log_offset, timeout=300)
+        battle_log_offset = wait_for_replay_start(launched_at, timeout=300)
         if not battle_log_offset:
             raise TimeoutError("リプレイ開始の検出がタイムアウトしました")
 
