@@ -13,9 +13,61 @@ import traceback
 from pathlib import Path
 
 from src.config import OUTPUT_DIR, load_config
+from src.parse_replay import PlayerStats, parse_replay
 from src.pipeline import RecordingEnvironmentError, SilentRecordingError, process_replay
 
 DONE_LOG = OUTPUT_DIR / "processed.json"
+
+# 録画価値フィルタのデフォルト基準（いずれかを満たせば録画する）
+DEFAULT_MIN_KILLS = 2
+DEFAULT_MIN_DAMAGE = 1500
+DEFAULT_MIN_MASTERY = 3  # 3 = 1級, 4 = M章
+
+
+def meets_criteria(
+    stats: PlayerStats,
+    min_kills: int = DEFAULT_MIN_KILLS,
+    min_damage: int = DEFAULT_MIN_DAMAGE,
+    min_mastery: int = DEFAULT_MIN_MASTERY,
+) -> bool:
+    """Shorts の見せ場が期待できる成績か（OR 条件）。"""
+    return (
+        stats.kills >= min_kills
+        or stats.damage_dealt >= min_damage
+        or stats.mark_of_mastery >= min_mastery
+    )
+
+
+def _select_worthy(paths: list[Path]) -> list[Path]:
+    """
+    録画する価値のあるリプレイだけに絞る。
+
+    録画は1本 ~10 分かかるため、Block 2 の戦闘結果メタデータで
+    事前に判定する。解析できないもの（戦闘結果なし = 途中退出等）は除外。
+    """
+    cfg = load_config().get("batch", {})
+    if not cfg.get("filter_enabled", True):
+        return paths
+
+    min_kills = cfg.get("min_kills", DEFAULT_MIN_KILLS)
+    min_damage = cfg.get("min_damage", DEFAULT_MIN_DAMAGE)
+    min_mastery = cfg.get("min_mastery", DEFAULT_MIN_MASTERY)
+
+    kept = []
+    for p in paths:
+        try:
+            stats = parse_replay(p).player_stats
+        except Exception:
+            print(f"  除外（戦闘結果を解析できません）: {p.name}")
+            continue
+        if meets_criteria(stats, min_kills, min_damage, min_mastery):
+            kept.append(p)
+        else:
+            print(
+                f"  除外（{stats.kills}kill / {stats.damage_dealt}dmg / "
+                f"M章{stats.mark_of_mastery}）: {p.name}"
+            )
+    return kept
 
 
 def _has_result(path: Path) -> bool:
@@ -43,7 +95,13 @@ def _save_done(done: set[str]) -> None:
 
 def process_replays(replay_paths: list[Path], preflight: bool = True) -> None:
     done = _load_done()
-    targets = [p for p in replay_paths if p.name not in done and _has_result(p)]
+    candidates = [p for p in replay_paths if p.name not in done and _has_result(p)]
+
+    print(f"録画価値を判定中: {len(candidates)} 本...")
+    targets = _select_worthy(candidates)
+    skipped = len(candidates) - len(targets)
+    if skipped:
+        print(f"成績基準未満のため {skipped} 本をスキップ（録画対象: {len(targets)} 本）")
 
     if not targets:
         print("処理対象のリプレイがありません。")
