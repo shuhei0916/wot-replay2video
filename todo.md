@@ -7,6 +7,12 @@
 
 ## 次にやる
 
+- [ ] **YouTube Studio で無音の3本を削除**（アップロードスコープの OAuth では API 削除
+      不可のため手動で）: BHPe3ycmFAQ / z-jQb2ZVg0Q / 0yTtrVBpNec
+      （upload_backlog.py の初回実行時、無音ガード追加前に旧 Shorts が混入した）
+- [ ] 毎日 `python -u upload_backlog.py` を実行してバックログを消化
+      （クォータの都合で1日5本まで。タスクスケジューラ化の候補）
+
 - [ ] 無音期間（6/21〜7/2）の再録画バッチを完走させる（2026-07-03 実行中。
       対象 ~113本、`output/batch_20260703.log` に進捗。resumable なので
       中断しても `python -u run_batch.py` で再開可能）
