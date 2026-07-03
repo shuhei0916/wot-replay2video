@@ -94,6 +94,19 @@ def stop_recording(
     recorded = Path(resp.output_path)
     print(f"OBS 録画停止: {recorded}")
 
+    # OBS のファイナライズ（moov atom 書き込み）完了を待つ。
+    # 書き込み途中で移動すると再生不能な MP4 になることがある
+    last_size = -1
+    for _ in range(30):
+        try:
+            size = recorded.stat().st_size
+        except OSError:
+            size = -1
+        if size > 0 and size == last_size:
+            break
+        last_size = size
+        time.sleep(1)
+
     if output_path is not None and recorded != output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         # OBS が MP4 を書き終えるまで待つ（最大 15 秒リトライ）

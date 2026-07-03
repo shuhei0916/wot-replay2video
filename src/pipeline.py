@@ -11,6 +11,7 @@
 import datetime
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from src.config import OUTPUT_DIR, find_ffmpeg, find_ffprobe, load_config
@@ -65,13 +66,21 @@ def _remux_faststart(src: Path) -> Path:
         return src
 
     tmp = src.with_suffix(".tmp.mp4")
-    subprocess.run(
-        [ffmpeg, "-i", str(src), "-c", "copy", "-movflags", "+faststart", str(tmp), "-y"],
-        check=True,
-        capture_output=True,
+    # OBS のファイナライズ完了直後は moov atom がまだ無いことがあるためリトライ
+    for attempt in range(3):
+        r = subprocess.run(
+            [ffmpeg, "-i", str(src), "-c", "copy", "-movflags", "+faststart", str(tmp), "-y"],
+            capture_output=True,
+        )
+        if r.returncode == 0:
+            tmp.replace(src)
+            return src
+        if attempt < 2:
+            print(f"リムックス失敗（{attempt + 1}/3）。5秒後にリトライします...")
+            time.sleep(5)
+    raise RuntimeError(
+        f"リムックスに失敗しました: {src}\n{r.stderr.decode(errors='replace')[-500:]}"
     )
-    tmp.replace(src)
-    return src
 
 
 def record_replay(replay_path: Path) -> Path:
