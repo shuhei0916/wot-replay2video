@@ -14,7 +14,14 @@ import sys
 from pathlib import Path
 
 from src.config import OUTPUT_DIR, find_ffmpeg, find_ffprobe, load_config
-from src.launcher import launch_replay, wait_for_replay_start, wait_for_replay_end, kill_wot
+from src.launcher import (
+    bring_wot_to_foreground,
+    is_wot_foreground,
+    kill_wot,
+    launch_replay,
+    wait_for_replay_end,
+    wait_for_replay_start,
+)
 from src.recorder import start_recording, stop_recording
 from src.detect_highlights import detect_highlights
 from src.edit_video import make_shorts
@@ -24,6 +31,10 @@ from src.upload_youtube import upload_video
 
 class SilentRecordingError(RuntimeError):
     """録画の音声が無音だった（システム的な問題なのでバッチは中断すべき）。"""
+
+
+class RecordingEnvironmentError(RuntimeError):
+    """録画環境の異常（WoT が前面に出せない等）。バッチは中断すべき。"""
 
 
 # 正常録音は ~130-190kbps、無音録画は ~2.3kbps
@@ -90,8 +101,21 @@ def record_replay(replay_path: Path) -> Path:
         if not battle_log_offset:
             raise TimeoutError("リプレイ開始の検出がタイムアウトしました")
 
+        # 画面キャプチャ録画は WoT が前面にいることが前提。
+        # バックグラウンド起動だと Windows のフォアグラウンドロックで
+        # 背面に回り、別ウィンドウを録画してしまう事故が起きる
+        if not bring_wot_to_foreground():
+            raise RecordingEnvironmentError(
+                "WoT ウィンドウを前面に出せません。録画すると別の画面が映るため中断します"
+            )
+
         print(f"[3/5] 録画開始 → {out_path.name}")
         rec_client = start_recording()
+
+        if not is_wot_foreground():
+            raise RecordingEnvironmentError(
+                "録画開始時に WoT が前面にありません。中断します"
+            )
 
         print("[4/5] リプレイ終了を待機中...")
         if not wait_for_replay_end(battle_log_offset, timeout=900):

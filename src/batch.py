@@ -13,7 +13,7 @@ import traceback
 from pathlib import Path
 
 from src.config import OUTPUT_DIR, load_config
-from src.pipeline import SilentRecordingError, process_replay
+from src.pipeline import RecordingEnvironmentError, SilentRecordingError, process_replay
 
 DONE_LOG = OUTPUT_DIR / "processed.json"
 
@@ -67,10 +67,10 @@ def process_replays(replay_paths: list[Path], preflight: bool = True) -> None:
             _save_done(done)
             print(f"[OK] 完了: {out_path.name}")
 
-        except SilentRecordingError as e:
-            # 無音はシステム的な問題（ミュート等）。続けても全滅するので中断する
+        except (SilentRecordingError, RecordingEnvironmentError) as e:
+            # システム的な問題（ミュート・前面化失敗等）。続けても全滅するので中断する
             print(f"[NG] {e}")
-            print("無音録画を検出したためバッチを中断します。")
+            print("録画環境の異常を検出したためバッチを中断します。")
             break
         except Exception as e:
             print(f"[NG] エラー（スキップ）: {e}")

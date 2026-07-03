@@ -49,6 +49,102 @@ def kill_wot() -> None:
     time.sleep(5)
 
 
+def _wot_pids() -> set[int]:
+    """実行中の WorldOfTanks.exe の PID 一覧を返す。"""
+    result = subprocess.run(
+        ["tasklist", "/fi", "imagename eq WorldOfTanks.exe", "/fo", "csv", "/nh"],
+        capture_output=True, text=True,
+    )
+    pids = set()
+    for line in result.stdout.splitlines():
+        parts = line.split('","')
+        if len(parts) >= 2 and "WorldOfTanks" in parts[0]:
+            try:
+                pids.add(int(parts[1].strip('"')))
+            except ValueError:
+                pass
+    return pids
+
+
+def _find_wot_hwnd() -> int | None:
+    """WoT プロセスの可視トップレベルウィンドウのハンドルを返す。"""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    pids = _wot_pids()
+    if not pids:
+        return None
+
+    found: list[int] = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+    def _cb(hwnd, _lparam):
+        if user32.IsWindowVisible(hwnd):
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            if pid.value in pids:
+                found.append(hwnd)
+                return False
+        return True
+
+    user32.EnumWindows(_cb, 0)
+    return found[0] if found else None
+
+
+def is_wot_foreground() -> bool:
+    """フォアグラウンドウィンドウが WoT かどうか。"""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return False
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value in _wot_pids()
+
+
+def bring_wot_to_foreground(timeout: int = 60) -> bool:
+    """
+    WoT ウィンドウを前面に出す。
+
+    バックグラウンドプロセス（自動化スクリプト）から起動した WoT は
+    Windows のフォアグラウンドロックにより背面に回ることがある。
+    背面のままだと画面キャプチャ録画に別のウィンドウが映ってしまう。
+    ALT キーイベントでロックを解除してから SetForegroundWindow する。
+    """
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    SW_RESTORE = 9
+    VK_MENU = 0x12
+    KEYEVENTF_KEYUP = 0x2
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        hwnd = _find_wot_hwnd()
+        if hwnd:
+            if is_wot_foreground():
+                return True
+            # ALT 押下でフォアグラウンドロックを解除する定番ワークアラウンド
+            user32.keybd_event(VK_MENU, 0, 0, 0)
+            user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+            user32.ShowWindow(hwnd, SW_RESTORE)
+            user32.SetForegroundWindow(hwnd)
+            time.sleep(1)
+            if is_wot_foreground():
+                return True
+            # 最後の手段（古い API だが効果が高い）
+            user32.SwitchToThisWindow(hwnd, True)
+            time.sleep(1)
+            if is_wot_foreground():
+                return True
+        time.sleep(2)
+    return False
+
+
 def wait_for_replay_start(log_offset: int, timeout: int = 180) -> int:
     """
     リプレイ再生開始（BattleLoadingSpace）を python.log で検出する。
