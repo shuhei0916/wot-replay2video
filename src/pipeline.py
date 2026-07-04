@@ -124,10 +124,12 @@ def record_replay(replay_path: Path) -> Path:
         if not battle_log_offset:
             raise TimeoutError("リプレイ開始の検出がタイムアウトしました")
 
-        # 画面キャプチャ録画は WoT が前面にいることが前提。
-        # バックグラウンド起動だと Windows のフォアグラウンドロックで
-        # 背面に回り、別ウィンドウを録画してしまう事故が起きる
-        if not bring_wot_to_foreground():
+        # OBS が monitor_capture の場合は WoT が前面にいないと別の画面が
+        # 録画される（2026-07-03 の事故）。window_capture なら前面は不要
+        # だが、確実な描画のため前面化は試みる（失敗しても続行）
+        capture_mode = load_config().get("obs", {}).get("capture", "monitor")
+        fg_ok = bring_wot_to_foreground()
+        if not fg_ok and capture_mode != "window":
             raise RecordingEnvironmentError(
                 "WoT ウィンドウを前面に出せません。録画すると別の画面が映るため中断します"
             )
@@ -136,7 +138,7 @@ def record_replay(replay_path: Path) -> Path:
         rec_client = start_recording()
         rec_start_epoch = time.time()
 
-        if not is_wot_foreground():
+        if capture_mode != "window" and not is_wot_foreground():
             raise RecordingEnvironmentError(
                 "録画開始時に WoT が前面にありません。中断します"
             )
