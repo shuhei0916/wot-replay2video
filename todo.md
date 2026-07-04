@@ -11,14 +11,12 @@
       不可のため手動で）: BHPe3ycmFAQ / z-jQb2ZVg0Q / 0yTtrVBpNec
       （upload_backlog.py の初回実行時、無音ガード追加前に旧 Shorts が混入した）
 - [ ] 毎日 `python -u upload_backlog.py` を実行してバックログを消化
-      （クォータの都合で1日5本まで。タスクスケジューラ化の候補）
-
-- [ ] 無音期間（6/21〜7/2）の再録画バッチを完走させる（2026-07-03 実行中。
-      対象 ~113本、`output/batch_20260703.log` に進捗。resumable なので
-      中断しても `python -u run_batch.py` で再開可能）
-- [ ] 再録画完了後、生成された Shorts の品質を確認して厳選アップロード
-      （`config.yaml` の `youtube.enabled` を true に戻す）
-- [ ] `config.yaml` の `youtube.privacy` を `"public"` に変更（公開運用開始時）
+      （2026-07-05 朝時点で **52本待ち**。チャンネルの日次アップロード上限は
+      実測 ~19本/日（uploadLimitExceeded）。max_per_run を上げて数日で捌くか、
+      5本/日の定常ペースにするかは要判断。タスクスケジューラ化の本命候補）
+- [x] 無音期間の再録画バッチ完走（2026-07-05 04:10 全処理完了、processed.json 72本。
+      品質フィルタ通過分すべて処理、一過性スキップも回収済み）
+- [x] `youtube.privacy` を public 化し公開運用開始（2026-07-04 品質承認、初日19本公開）
 
 ## 改善
 
