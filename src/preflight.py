@@ -195,12 +195,36 @@ def test_recording(client) -> list[str]:
     return problems
 
 
+def check_mod_deployed() -> None:
+    """
+    mod (mod_shot_logger) が現行クライアントバージョンの res_mods に
+    配置されているか確認する。未配置でも CV 検出で動くため警告のみ。
+    """
+    wot_dir = Path(load_config().get("wot", {}).get("dir", r"C:\Games\World_of_Tanks_ASIA"))
+    try:
+        from xml.etree import ElementTree
+        tree = ElementTree.parse(wot_dir / "paths.xml")
+        version = next(
+            (p.text or "").strip().rsplit("/", 1)[-1]
+            for p in tree.iter("Path")
+            if "res_mods" in (p.text or "")
+        )
+    except (OSError, StopIteration) as e:
+        print(f"[warn] クライアントバージョンを確認できません: {e}")
+        return
+    pyc = wot_dir / "res_mods" / version / "scripts" / "client" / "mod_shot_logger.pyc"
+    if not pyc.exists():
+        print(f"[warn] mod 未配置（v{version}）。射撃イベントは CV 検出になります。"
+              "配置するには: python mods/deploy_mod.py")
+
+
 def run_preflight() -> bool:
     """
     プリフライトチェックを実行し、録画可能な状態なら True を返す。
     問題があれば内容を表示して False を返す。
     """
     print("=== 録画プリフライトチェック ===")
+    check_mod_deployed()
     try:
         client = ensure_obs_running()
     except RuntimeError as e:

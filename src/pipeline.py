@@ -9,6 +9,8 @@
 """
 
 import datetime
+import json
+import shutil
 import subprocess
 import sys
 import time
@@ -40,6 +42,12 @@ class RecordingEnvironmentError(RuntimeError):
 
 # 正常録音は ~130-190kbps、無音録画は ~2.3kbps
 MIN_AUDIO_BITRATE = 10_000
+
+# mod (mod_shot_logger) のイベント出力先。次のバトルで上書きされるため
+# 録画ごとに <recording>.events.json へスナップショットする
+SHOT_EVENTS_PATH = Path(
+    load_config().get("wot", {}).get("dir", r"C:\Games\World_of_Tanks_ASIA")
+) / "shot_events.json"
 
 
 def _audio_bitrate(video_path: Path) -> int | None:
@@ -101,6 +109,12 @@ def record_replay(replay_path: Path) -> Path:
     out_path = OUTPUT_DIR / f"{replay_path.stem}_{ts}.mp4"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # 前バトルの mod イベント残骸をクリア（存在＝今回のセッションの出力と保証する）
+    try:
+        SHOT_EVENTS_PATH.unlink()
+    except OSError:
+        pass
+
     print(f"[1/5] WoT 起動中: {replay_path.name}")
     wot_proc, launched_at = launch_replay(replay_path)
 
@@ -120,6 +134,7 @@ def record_replay(replay_path: Path) -> Path:
 
         print(f"[3/5] 録画開始 → {out_path.name}")
         rec_client = start_recording()
+        rec_start_epoch = time.time()
 
         if not is_wot_foreground():
             raise RecordingEnvironmentError(
@@ -146,20 +161,46 @@ def record_replay(replay_path: Path) -> Path:
             "Windows ミキサーの WoT 個別ミュート・OBS の音声設定を確認してください"
         )
 
+    # サイドカー保存: 録画開始 epoch と mod イベントのスナップショット。
+    # これがあれば後からでも mod ベースのハイライト検出を再実行できる
+    out_path.with_suffix(".meta.json").write_text(
+        json.dumps({"rec_start_epoch": rec_start_epoch, "replay": replay_path.name}),
+        encoding="utf-8",
+    )
+    if SHOT_EVENTS_PATH.exists():
+        shutil.copy(str(SHOT_EVENTS_PATH), str(out_path.with_suffix(".events.json")))
+        print(f"mod イベントを保存: {out_path.with_suffix('.events.json').name}")
+    else:
+        print("mod イベントなし（mod 未配置または未発火。CV 検出にフォールバックします）")
+
     return out_path
 
 
 def _detect_events(recording_path: Path):
-    """輝度フラッシュ + 音声スパイクの融合検出。音声が使えない場合は輝度のみ。"""
-    flash = detect_highlights(recording_path)
+    """
+    ハイライトイベント検出。優先順位: mod > 音声+輝度融合 > 輝度のみ。
+
+    mod イベント（サイドカー .meta.json / .events.json）は推測を含まない
+    正確な射撃記録なので、存在すれば最優先で使い、音声ピークでスコア付けする。
+    """
+    audio = []
     try:
         from src.detect_audio_events import detect_audio_events, fuse_events
         audio = detect_audio_events(recording_path, skip_initial_sec=40.0)
-        if audio:
-            print(f"  音声ピーク {len(audio)} 件 / 輝度フラッシュ {len(flash)} 件を融合")
-            return fuse_events(flash, audio)
     except Exception as e:
-        print(f"警告: 音声解析に失敗（輝度検出のみ使用）: {e}")
+        print(f"警告: 音声解析に失敗: {e}")
+        fuse_events = None
+
+    from src.detect_mod_events import load_mod_events, score_with_audio
+    mod_events = load_mod_events(recording_path)
+    if mod_events:
+        print(f"  mod イベント {len(mod_events)} 件を使用（音声ピーク {len(audio)} 件でスコア付け）")
+        return score_with_audio(mod_events, audio)
+
+    flash = detect_highlights(recording_path)
+    if audio and fuse_events is not None:
+        print(f"  音声ピーク {len(audio)} 件 / 輝度フラッシュ {len(flash)} 件を融合")
+        return fuse_events(flash, audio)
     return flash
 
 
