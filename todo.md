@@ -34,19 +34,16 @@
 
 ## mod ベースのハイライト検出（実証済み・統合待ち）
 
-2026-07-04 に mod によるゲーム内射撃イベント取得を実証（7/7 一致、`mods/deploy_mod.py`）。
-残る統合作業:
+2026-07-04 に mod によるゲーム内射撃イベント取得を実証し、パイプライン統合済み。
+E2E 検証: fishing_bay で mod イベント7件 → 誤検出ゼロの7クリップ Shorts を生成。
 
-- [ ] pipeline に録画開始 epoch の記録を追加し、`shot_events.json` の epoch から
-      動画内タイムスタンプへ変換する `detect_mod_events()` を実装
-- [ ] 検出優先順位を「mod > 音声 > 輝度」にする（mod イベントがあれば最優先、
-      無ければ従来の融合検出にフォールバック）
-- [ ] バトル開始フック（onArenaPeriodChange）が発火しなかった件の調査（任意。
-      epoch 方式では不要だが、リザルト画面除外などに使える）
+- [x] pipeline 統合（サイドカー `.meta.json`/`.events.json`、`src/detect_mod_events.py`、
+      検出優先順位 mod > 音声+輝度融合 > 輝度のみ）
+- [x] preflight に mod 未配置の警告を追加（クライアント更新後の検知）
 - [ ] mod イベントの拡張: 命中・貫通・撃破・被弾（PlayerAvatar の
       フィードバック系フック）→ ハイライトのスコアリング精度向上
-- [ ] クライアント更新時の再デプロイ手順を preflight に組み込む
-      （res_mods/<新バージョン>/ に .pyc が無ければ deploy_mod.py を実行）
+- [ ] バトル開始フック（onArenaPeriodChange）が発火しなかった件の調査（任意。
+      epoch 方式では不要だが、リザルト画面除外などに使える）
 
 ## 調査・将来
 
