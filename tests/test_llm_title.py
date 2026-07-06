@@ -35,43 +35,40 @@ class TestBuildPrompt:
         assert "Type58" in prompt
         assert "氷河" in prompt
         assert "勝利" in prompt
-        assert "3" in prompt      # kills
-        assert "1500" in prompt   # damage
 
-    def test_contains_required_tags(self):
+    def test_requests_marker_format(self):
         prompt = build_prompt(_info())
-        assert "#Shorts" in prompt
-        assert "#WorldOfTanks" in prompt
+        assert "<title>" in prompt
 
 
 class TestCleanTitle:
-    def test_valid_title_passthrough(self):
-        t = "Type 58が氷河で3キル大暴れ！ #Shorts #WorldOfTanks"
-        assert clean_title(t) == t
+    def test_marker_extraction(self):
+        assert clean_title("<title>弾あたらん😡</title>") == "弾あたらん😡"
+
+    def test_marker_wins_over_preamble(self):
+        # 前置きがあってもマーカー内だけを採用する
+        raw = "ダメージを基にタイトルを生成します。\n<title>今日は当たる日</title>\n以上です。"
+        assert clean_title(raw) == "今日は当たる日"
+
+    def test_no_marker_first_line_fallback(self):
+        assert clean_title("O-I 100 は正義\n補足説明") == "O-I 100 は正義"
+
+    def test_meta_preamble_without_marker_rejected(self):
+        # 過去の事故: 前置き文がそのままタイトルになった
+        assert clean_title("ダメージを基にタイトルを生成します") is None
+        assert clean_title("以下のタイトル案はいかがでしょう") is None
 
     def test_empty_returns_none(self):
         assert clean_title("") is None
         assert clean_title("   \n  ") is None
-
-    def test_takes_first_line(self):
-        raw = "Type 58の3キル劇 #Shorts #WorldOfTanks\n\nこのタイトルは戦績を強調しています。"
-        assert clean_title(raw) == "Type 58の3キル劇 #Shorts #WorldOfTanks"
+        assert clean_title("<title></title>") is None
 
     def test_strips_surrounding_quotes(self):
-        assert clean_title('「Type 58が3キル #Shorts #WorldOfTanks」') == \
-            "Type 58が3キル #Shorts #WorldOfTanks"
-
-    def test_appends_missing_tags(self):
-        cleaned = clean_title("Type 58が3キル")
-        assert cleaned == "Type 58が3キル #Shorts #WorldOfTanks"
+        assert clean_title("<title>「弾あたらん…」</title>") == "弾あたらん…"
 
     def test_too_long_returns_none(self):
         assert clean_title("あ" * (MAX_TITLE_LEN + 1)) is None
+        assert clean_title(f"<title>{'あ' * (MAX_TITLE_LEN + 1)}</title>") is None
 
-    def test_too_long_after_tags_returns_none(self):
-        base = "あ" * (MAX_TITLE_LEN - 5)  # タグ追記で上限超過
-        assert clean_title(base) is None
-
-    def test_tag_case_insensitive(self):
-        t = "3キル #shorts #worldoftanks"
-        assert clean_title(t) == t
+    def test_multiline_inside_marker_rejected(self):
+        assert clean_title("<title>一行目\n二行目</title>") is None
