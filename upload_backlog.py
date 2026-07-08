@@ -11,6 +11,7 @@
     python -u upload_backlog.py
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -78,6 +79,16 @@ def main() -> int:
     for score, path, title in pending[:limit]:
         print(f"\n[score={score}] {path.name}")
         print(f"  タイトル: {title}")
+
+        # 多言語タイトルのサイドカーがあれば localizations として使う
+        localizations = None
+        titles_path = path.with_suffix(".titles.json")
+        if titles_path.exists():
+            try:
+                localizations = json.loads(titles_path.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                pass
+
         try:
             video_id = upload_video(
                 video_path=path,
@@ -85,6 +96,7 @@ def main() -> int:
                 privacy=yt.get("privacy", "private"),
                 category_id=yt.get("category_id", "20"),
                 extra_tags=yt.get("default_tags", []),
+                localizations=localizations,
             )
             if video_id:
                 uploaded += 1

@@ -27,15 +27,24 @@ def build_video_metadata(
     privacy: str,
     category_id: str = "20",
     extra_tags: list[str] | None = None,
+    localizations: dict[str, str] | None = None,
+    default_language: str = "ja",
 ) -> dict:
-    """YouTube API の videos.insert に渡す body dict を構築する。"""
+    """
+    YouTube API の videos.insert に渡す body dict を構築する。
+
+    Args:
+        localizations: 言語コード → 翻訳タイトル。視聴者の UI 言語に応じて
+            YouTube がタイトルを切り替える（例: {"en": "...", "ru": "..."}）
+        default_language: メインタイトルの言語コード
+    """
     tags = extract_tags_from_title(title)
     if extra_tags:
         for t in extra_tags:
             if t not in tags:
                 tags.append(t)
 
-    return {
+    body = {
         "snippet": {
             "title": title,
             "categoryId": category_id,
@@ -45,6 +54,14 @@ def build_video_metadata(
             "privacyStatus": privacy,
         },
     }
+    if localizations:
+        body["snippet"]["defaultLanguage"] = default_language
+        body["localizations"] = {
+            lang: {"title": t, "description": ""}
+            for lang, t in localizations.items()
+            if lang != default_language
+        }
+    return body
 
 
 def is_uploaded(video_stem: str, log_path: Path) -> bool:
@@ -114,6 +131,7 @@ def upload_video(
     privacy: str = "private",
     category_id: str = "20",
     extra_tags: list[str] | None = None,
+    localizations: dict[str, str] | None = None,
     secrets_path: Path | None = None,
     token_path: Path | None = None,
 ) -> str | None:
@@ -147,7 +165,10 @@ def upload_video(
     creds = _get_credentials(secrets_path, token_path)
     youtube = googleapiclient.discovery.build("youtube", "v3", credentials=creds)
 
-    body = build_video_metadata(title, privacy=privacy, category_id=category_id, extra_tags=extra_tags)
+    body = build_video_metadata(
+        title, privacy=privacy, category_id=category_id,
+        extra_tags=extra_tags, localizations=localizations,
+    )
     media = googleapiclient.http.MediaFileUpload(
         str(video_path),
         mimetype="video/mp4",

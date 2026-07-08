@@ -5,7 +5,13 @@ claude CLI を呼ぶ generate_title_llm は対象外（プロンプト構築と�
 
 import datetime
 
-from src.llm_title import MAX_TITLE_LEN, build_prompt, clean_title
+from src.llm_title import (
+    MAX_TITLE_LEN,
+    build_multilang_prompt,
+    build_prompt,
+    clean_title,
+    parse_multilang_titles,
+)
 from src.parse_replay import BattleInfo, PlayerStats
 
 
@@ -72,3 +78,43 @@ class TestCleanTitle:
 
     def test_multiline_inside_marker_rejected(self):
         assert clean_title("<title>一行目\n二行目</title>") is None
+
+
+class TestMultilangPrompt:
+    def test_requests_three_languages(self):
+        prompt = build_multilang_prompt(_info())
+        assert "<ja>" in prompt
+        assert "<en>" in prompt
+        assert "<ru>" in prompt
+
+
+class TestParseMultilangTitles:
+    def test_all_three(self):
+        raw = "<ja>弾あたらん😡</ja>\n<en>Can't hit anything 😡</en>\n<ru>Не попадаю 😡</ru>"
+        titles = parse_multilang_titles(raw)
+        assert titles == {
+            "ja": "弾あたらん😡",
+            "en": "Can't hit anything 😡",
+            "ru": "Не попадаю 😡",
+        }
+
+    def test_ja_only_ok(self):
+        assert parse_multilang_titles("<ja>今日は当たる日</ja>") == {"ja": "今日は当たる日"}
+
+    def test_missing_ja_returns_none(self):
+        assert parse_multilang_titles("<en>English only</en>") is None
+
+    def test_preamble_ignored(self):
+        raw = "以下のタイトルを生成しました。\n<ja>3キル劇</ja>\n<en>Triple kill</en>"
+        titles = parse_multilang_titles(raw)
+        assert titles["ja"] == "3キル劇"
+        assert titles["en"] == "Triple kill"
+
+    def test_empty_returns_none(self):
+        assert parse_multilang_titles("") is None
+        assert parse_multilang_titles("<ja></ja>") is None
+
+    def test_too_long_lang_dropped(self):
+        raw = f"<ja>OK</ja>\n<en>{'x' * (MAX_TITLE_LEN + 1)}</en>"
+        titles = parse_multilang_titles(raw)
+        assert titles == {"ja": "OK"}

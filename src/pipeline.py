@@ -224,29 +224,33 @@ def make_highlight_shorts(recording_path: Path) -> Path | None:
     return shorts_path
 
 
-def build_title(replay_path: Path) -> str:
+def build_titles(replay_path: Path) -> dict[str, str]:
     """
-    リプレイのメタデータからタイトルを生成する。
+    リプレイのメタデータから多言語タイトルを生成する（"ja" は必ず含む）。
 
-    youtube.llm_title が有効なら claude -p で生成し、失敗時は
-    テンプレート生成、解析自体の失敗時はファイル名ベースに落ちる。
+    youtube.llm_title が有効なら claude -p で ja+en+ru を一括生成し、
+    失敗時はテンプレート生成（ja のみ）、解析失敗時はファイル名ベース。
     """
     try:
         info = parse_replay(replay_path)
     except Exception:
-        return f"【WoT】{replay_path.stem} #Shorts #WorldOfTanks"
+        return {"ja": f"【WoT】{replay_path.stem} #Shorts #WorldOfTanks"}
 
     if load_config().get("youtube", {}).get("llm_title", False):
-        from src.llm_title import generate_title_llm
-        title = generate_title_llm(info)
-        if title:
-            return title
+        from src.llm_title import generate_titles_llm
+        titles = generate_titles_llm(info)
+        if titles:
+            return titles
         print("警告: LLM タイトル生成に失敗。テンプレートにフォールバックします")
 
-    return generate_title(info)
+    return {"ja": generate_title(info)}
 
 
-def upload_shorts(video_path: Path, title: str) -> None:
+def upload_shorts(
+    video_path: Path,
+    title: str,
+    localizations: dict[str, str] | None = None,
+) -> None:
     """Shorts を YouTube にアップロードする。失敗してもパイプラインは継続する。"""
     try:
         yt = load_config().get("youtube", {})
@@ -259,6 +263,7 @@ def upload_shorts(video_path: Path, title: str) -> None:
             privacy=yt.get("privacy", "private"),
             category_id=yt.get("category_id", "20"),
             extra_tags=yt.get("default_tags", []),
+            localizations=localizations,
         )
     except Exception as e:
         print(f"警告: YouTube アップロードに失敗しました（動画は保持）: {e}")
@@ -279,12 +284,16 @@ def process_replay(replay_path: Path) -> Path:
         print(f"ハイライトが見つかりませんでした。録画のみ保存: {recording}")
         return recording
 
-    title = build_title(replay_path)
-    title_path = shorts_path.with_suffix(".txt")
-    title_path.write_text(title, encoding="utf-8")
+    titles = build_titles(replay_path)
+    title = titles["ja"]
+    shorts_path.with_suffix(".txt").write_text(title, encoding="utf-8")
+    # 多言語タイトルはサイドカーに保存（バックログからのアップロードでも使う）
+    shorts_path.with_suffix(".titles.json").write_text(
+        json.dumps(titles, ensure_ascii=False), encoding="utf-8",
+    )
     print(f"タイトル: {title}")
 
-    upload_shorts(shorts_path, title)
+    upload_shorts(shorts_path, title, localizations=titles)
     print(f"完了: {shorts_path}")
     return shorts_path
 

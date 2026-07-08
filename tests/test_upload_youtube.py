@@ -17,6 +17,26 @@ from src.upload_youtube import (
 )
 
 
+# ---- localizations ----
+
+class TestLocalizations:
+    def test_no_localizations_omits_fields(self):
+        body = build_video_metadata("タイトル", privacy="public")
+        assert "localizations" not in body
+        assert "defaultLanguage" not in body["snippet"]
+
+    def test_localizations_included(self):
+        body = build_video_metadata(
+            "弾あたらん😡", privacy="public",
+            localizations={"ja": "弾あたらん😡", "en": "Can't hit anything"},
+        )
+        assert body["snippet"]["defaultLanguage"] == "ja"
+        # デフォルト言語 (ja) は localizations から除外される
+        assert body["localizations"] == {
+            "en": {"title": "Can't hit anything", "description": ""},
+        }
+
+
 # ---- replay_stem_from_video ----
 
 class TestReplayStemFromVideo:
