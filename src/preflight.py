@@ -15,7 +15,8 @@ import subprocess
 import time
 from pathlib import Path
 
-from src.config import find_ffmpeg, find_ffprobe, load_config
+from src.config import find_ffmpeg, find_ffprobe, load_config, wot_client_version, wot_dir
+from src.recorder import connect as obs_connect
 
 _obs_cfg = load_config().get("obs", {})
 
@@ -29,20 +30,6 @@ MIN_AUDIO_BITRATE = 10_000
 MIN_TEST_MAX_VOLUME_DB = -40.0
 
 
-def _try_connect(timeout: int = 3):
-    """OBS WebSocket への接続を試みる。失敗したら None。"""
-    try:
-        import obsws_python as obs
-        return obs.ReqClient(
-            host=_obs_cfg.get("host", "localhost"),
-            port=_obs_cfg.get("port", 4455),
-            password=_obs_cfg.get("password", ""),
-            timeout=timeout,
-        )
-    except Exception:
-        return None
-
-
 def ensure_obs_running():
     """
     OBS に接続できなければ起動し、WebSocket 接続できるまで待つ。
@@ -53,7 +40,7 @@ def ensure_obs_running():
     Raises:
         RuntimeError: 起動・接続に失敗した場合
     """
-    client = _try_connect()
+    client = obs_connect(timeout=3, required=False)
     if client is not None:
         return client
 
@@ -70,7 +57,7 @@ def ensure_obs_running():
     deadline = time.time() + 60
     while time.time() < deadline:
         time.sleep(3)
-        client = _try_connect()
+        client = obs_connect(timeout=3, required=False)
         if client is not None:
             print("OBS WebSocket に接続しました")
             return client
@@ -200,19 +187,12 @@ def check_mod_deployed() -> None:
     mod (mod_shot_logger) が現行クライアントバージョンの res_mods に
     配置されているか確認する。未配置でも CV 検出で動くため警告のみ。
     """
-    wot_dir = Path(load_config().get("wot", {}).get("dir", r"C:\Games\World_of_Tanks_ASIA"))
     try:
-        from xml.etree import ElementTree
-        tree = ElementTree.parse(wot_dir / "paths.xml")
-        version = next(
-            (p.text or "").strip().rsplit("/", 1)[-1]
-            for p in tree.iter("Path")
-            if "res_mods" in (p.text or "")
-        )
-    except (OSError, StopIteration) as e:
+        version = wot_client_version()
+    except (OSError, RuntimeError) as e:
         print(f"[warn] クライアントバージョンを確認できません: {e}")
         return
-    pyc = wot_dir / "res_mods" / version / "scripts" / "client" / "mod_shot_logger.pyc"
+    pyc = wot_dir() / "res_mods" / version / "scripts" / "client" / "mod_shot_logger.pyc"
     if not pyc.exists():
         print(f"[warn] mod 未配置（v{version}）。射撃イベントは CV 検出になります。"
               "配置するには: python mods/deploy_mod.py")

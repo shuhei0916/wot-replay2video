@@ -127,18 +127,14 @@ def make_shorts(
     video_path: Path,
     events: list[HighlightEvent],
     output_path: Path | None = None,
-    battle_start_offset: float = 0.0,
-    battle_duration: float | None = None,
 ) -> Path:
     """
     ハイライトイベントから YouTube Shorts 動画を生成する。
 
     Args:
         video_path: 元の録画動画パス
-        events: detect_highlights() が返したイベントリスト
+        events: 検出済みハイライトイベントのリスト
         output_path: 出力先（None なら output/ 以下に自動生成）
-        battle_start_offset: 動画内でバトルが始まる秒数（ローディング除外）
-        battle_duration: バトルの秒数（リザルト画面を除外するため）
 
     Returns:
         生成した Shorts 動画のパス
@@ -149,16 +145,10 @@ def make_shorts(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # バトル範囲内のイベントに絞る
-    filtered = events
-    if battle_duration is not None:
-        battle_end = battle_start_offset + battle_duration
-        filtered = [e for e in events if battle_start_offset <= e.timestamp <= battle_end]
-
     clip_duration = CLIP_PRE_SEC + CLIP_POST_SEC
 
     # 重複除去 + スコア上位選択（合計 SHORTS_MAX_SEC 以内）→ 時系列順
-    selected = select_clips(filtered)
+    selected = select_clips(events)
 
     if not selected:
         raise ValueError("選択されたハイライトイベントがありません")

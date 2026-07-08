@@ -18,17 +18,17 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(errors="replace")
 
 from src.batch import process_replays
+from src.config import replays_dir
 from src.parse_replay import read_replay_version
-
-REPLAY_DIR = Path(r"G:\その他のパソコン\マイ コンピュータ\replays")
 
 # 現行クライアント世代（v2.3.x）の最初のリプレイ日
 MIN_DATE = "20260619"
 
 
-def collect_replays() -> list[Path]:
+def collect_replays(replay_dir: Path | None = None) -> list[Path]:
+    replay_dir = replay_dir if replay_dir is not None else replays_dir()
     candidates = sorted(
-        p for p in REPLAY_DIR.glob("*.wotreplay") if p.name[:8] >= MIN_DATE
+        p for p in replay_dir.glob("*.wotreplay") if p.name[:8] >= MIN_DATE
     )
     if not candidates:
         return []
@@ -49,6 +49,6 @@ def collect_replays() -> list[Path]:
 if __name__ == "__main__":
     replays = collect_replays()
     if not replays:
-        print(f"対象リプレイがありません: {REPLAY_DIR}")
+        print(f"対象リプレイがありません: {replays_dir()}")
         sys.exit(1)
     process_replays(replays)

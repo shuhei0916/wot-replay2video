@@ -14,8 +14,7 @@
 import sys
 from pathlib import Path
 
-from run_batch import REPLAY_DIR
-from src.config import OUTPUT_DIR, load_config
+from src.config import OUTPUT_DIR, load_config, replays_dir
 from src.parse_replay import parse_replay
 from src.pipeline import MIN_AUDIO_BITRATE, _audio_bitrate
 from src.upload_youtube import (
@@ -26,11 +25,19 @@ from src.upload_youtube import (
 )
 
 
-def collect_pending() -> list[tuple[int, Path, str]]:
+def collect_pending(
+    output_dir: Path | None = None,
+    replay_dir: Path | None = None,
+    upload_log: Path | None = None,
+) -> list[tuple[int, Path, str]]:
     """(優先度スコア, 動画パス, タイトル) のリストをスコア降順で返す。"""
+    output_dir = output_dir if output_dir is not None else OUTPUT_DIR
+    replay_dir = replay_dir if replay_dir is not None else replays_dir()
+    upload_log = upload_log if upload_log is not None else UPLOAD_LOG
+
     items = []
-    for p in sorted(OUTPUT_DIR.glob("*_shorts.mp4")):
-        if is_uploaded(p.stem, UPLOAD_LOG):
+    for p in sorted(output_dir.glob("*_shorts.mp4")):
+        if is_uploaded(p.stem, upload_log):
             continue
         title_path = p.with_suffix(".txt")
         if not title_path.exists():
@@ -42,7 +49,7 @@ def collect_pending() -> list[tuple[int, Path, str]]:
         title = title_path.read_text(encoding="utf-8").strip()
 
         score = 0
-        replay = REPLAY_DIR / (replay_stem_from_video(p.stem) + ".wotreplay")
+        replay = replay_dir / (replay_stem_from_video(p.stem) + ".wotreplay")
         try:
             s = parse_replay(replay).player_stats
             score = s.kills * 1000 + s.damage_dealt

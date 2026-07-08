@@ -16,7 +16,7 @@ import sys
 import time
 from pathlib import Path
 
-from src.config import OUTPUT_DIR, find_ffmpeg, find_ffprobe, load_config
+from src.config import OUTPUT_DIR, find_ffmpeg, find_ffprobe, load_config, wot_dir
 from src.launcher import (
     bring_wot_to_foreground,
     is_wot_foreground,
@@ -45,9 +45,7 @@ MIN_AUDIO_BITRATE = 10_000
 
 # mod (mod_shot_logger) のイベント出力先。次のバトルで上書きされるため
 # 録画ごとに <recording>.events.json へスナップショットする
-SHOT_EVENTS_PATH = Path(
-    load_config().get("wot", {}).get("dir", r"C:\Games\World_of_Tanks_ASIA")
-) / "shot_events.json"
+SHOT_EVENTS_PATH = wot_dir() / "shot_events.json"
 
 
 def _audio_bitrate(video_path: Path) -> int | None:

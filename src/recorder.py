@@ -30,21 +30,34 @@ OBS_PORT = _obs_cfg.get("port", 4455)
 OBS_PASSWORD = _obs_cfg.get("password", "")
 
 
-def _get_client() -> "obs.ReqClient":
+def connect(timeout: int = 10, required: bool = True) -> "obs.ReqClient | None":
+    """
+    OBS WebSocket に接続する。
+
+    Args:
+        timeout: 接続タイムアウト秒
+        required: True なら失敗時に RuntimeError、False なら None を返す
+    """
     if obs is None:
         raise ImportError(
             "obsws-python が必要です: pip install obsws-python"
         )
     try:
         return obs.ReqClient(
-            host=OBS_HOST, port=OBS_PORT, password=OBS_PASSWORD, timeout=10
+            host=OBS_HOST, port=OBS_PORT, password=OBS_PASSWORD, timeout=timeout
         )
     except Exception as e:
+        if not required:
+            return None
         raise RuntimeError(
             f"OBS に接続できません: {e}\n"
             "OBS Studio が起動中か確認してください。\n"
             "ツール → obs-websocket 設定 → 「WebSocket サーバーを有効にする」"
         ) from e
+
+
+def _get_client() -> "obs.ReqClient":
+    return connect()
 
 
 # リプレイ録画中にミュートするマイク入力ソース名

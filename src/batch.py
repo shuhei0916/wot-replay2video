@@ -38,20 +38,29 @@ def meets_criteria(
     )
 
 
-def _select_worthy(paths: list[Path]) -> list[Path]:
+def _select_worthy(
+    paths: list[Path],
+    min_kills: int | None = None,
+    min_damage: int | None = None,
+    min_mastery: int | None = None,
+) -> list[Path]:
     """
     録画する価値のあるリプレイだけに絞る。
 
     録画は1本 ~10 分かかるため、Block 2 の戦闘結果メタデータで
     事前に判定する。解析できないもの（戦闘結果なし = 途中退出等）は除外。
+    閾値の未指定分は config.yaml の batch: セクション、次いでデフォルト値。
     """
     cfg = load_config().get("batch", {})
     if not cfg.get("filter_enabled", True):
         return paths
 
-    min_kills = cfg.get("min_kills", DEFAULT_MIN_KILLS)
-    min_damage = cfg.get("min_damage", DEFAULT_MIN_DAMAGE)
-    min_mastery = cfg.get("min_mastery", DEFAULT_MIN_MASTERY)
+    if min_kills is None:
+        min_kills = cfg.get("min_kills", DEFAULT_MIN_KILLS)
+    if min_damage is None:
+        min_damage = cfg.get("min_damage", DEFAULT_MIN_DAMAGE)
+    if min_mastery is None:
+        min_mastery = cfg.get("min_mastery", DEFAULT_MIN_MASTERY)
 
     kept = []
     for p in paths:

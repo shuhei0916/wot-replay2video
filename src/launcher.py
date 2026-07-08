@@ -14,21 +14,15 @@ import sys
 import time
 from pathlib import Path
 
-from src.config import load_config
+from src.config import wot_dir
 
-_wot_cfg = load_config().get("wot", {})
-
-WOT_DIR = Path(_wot_cfg.get("dir", r"C:\Games\World_of_Tanks_ASIA"))
+WOT_DIR = wot_dir()
 WOT_EXE = WOT_DIR / "WorldOfTanks.exe"
 WOT_LOG = WOT_DIR / "python.log"
 
 
 def is_wot_running() -> bool:
-    result = subprocess.run(
-        ["tasklist", "/fo", "csv", "/nh"],
-        capture_output=True,
-    )
-    return b"WorldOfTanks.exe" in result.stdout
+    return bool(_wot_pids())
 
 
 def kill_wot() -> None:

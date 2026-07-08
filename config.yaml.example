@@ -1,7 +1,33 @@
 obs:
   host: localhost
   port: 4455
-  password: ""  # OBS の obs-websocket パスワードをここに入力
+  password: ""               # OBS の obs-websocket パスワード
+  capture: "window"          # window: WoTウィンドウキャプチャ(前面不要) / monitor: 画面全体(前面必須)
+  # exe: "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe"  # 自動起動に使う OBS のパス
 
 wot:
-  dir: "C:\\Games\\World_of_Tanks_ASIA"  # WoT インストール先
+  dir: "C:\\Games\\World_of_Tanks_ASIA"   # WoT インストール先
+
+replays:
+  dir: "G:\\path\\to\\replays"            # 処理対象リプレイの置き場（Google Drive 同期フォルダ等）
+
+batch:
+  filter_enabled: true       # 録画前に戦闘結果で「見せ場のある試合」だけに絞る
+  min_kills: 2               # 以下のいずれかを満たせば録画する（OR 条件）
+  min_damage: 1500
+  min_mastery: 3             # 3 = 1級, 4 = M章
+
+# ffmpeg:
+#   path: "C:\\ffmpeg\\bin\\ffmpeg.exe"   # PATH に無い場合のみ指定
+
+youtube:
+  enabled: true              # パイプラインからの自動アップロード
+  max_per_run: 5             # upload_backlog.py が1回で上げる本数
+  llm_title: true            # claude -p でタイトル生成（失敗時はテンプレートにフォールバック）
+  privacy: "public"          # public / unlisted / private
+  category_id: "20"          # 20 = Gaming
+  default_tags:
+    - "WorldOfTanks"
+    - "WoT"
+    - "Shorts"
+    - "戦車"

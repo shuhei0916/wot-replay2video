@@ -13,6 +13,9 @@ PROJECT_ROOT = Path(__file__).parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
+_DEFAULT_WOT_DIR = r"C:\Games\World_of_Tanks_ASIA"
+_DEFAULT_REPLAYS_DIR = r"G:\その他のパソコン\マイ コンピュータ\replays"
+
 # ffmpeg の探索候補。config.yaml の ffmpeg.path が最優先。
 _FFMPEG_CANDIDATES = [
     "ffmpeg",
@@ -30,6 +33,31 @@ def load_config() -> dict:
     except Exception:
         pass
     return {}
+
+
+def wot_dir() -> Path:
+    """WoT のインストールディレクトリ。"""
+    return Path(load_config().get("wot", {}).get("dir", _DEFAULT_WOT_DIR))
+
+
+def replays_dir() -> Path:
+    """処理対象リプレイの置き場（Google Drive 同期フォルダ等）。"""
+    return Path(load_config().get("replays", {}).get("dir", _DEFAULT_REPLAYS_DIR))
+
+
+@lru_cache(maxsize=1)
+def wot_client_version() -> str:
+    """
+    paths.xml から現行クライアントのバージョンディレクトリ名（例: 2.3.0.2）を得る。
+    res_mods / mods のバージョンディレクトリと一致する。
+    """
+    from xml.etree import ElementTree
+    tree = ElementTree.parse(wot_dir() / "paths.xml")
+    for p in tree.iter("Path"):
+        text = (p.text or "").strip()
+        if "res_mods" in text:
+            return text.rsplit("/", 1)[-1]
+    raise RuntimeError("paths.xml から res_mods パスを特定できません")
 
 
 @lru_cache(maxsize=1)
