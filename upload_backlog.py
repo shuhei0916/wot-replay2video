@@ -24,6 +24,7 @@ for _stream in (sys.stdout, sys.stderr):
 from src.config import OUTPUT_DIR, load_config, replays_dir
 from src.parse_replay import parse_replay
 from src.pipeline import MIN_AUDIO_BITRATE, _audio_bitrate
+from src.schedule import allocate_publish_at, commit_publish_at
 from src.upload_youtube import (
     UPLOAD_LOG,
     is_uploaded,
@@ -95,6 +96,10 @@ def main() -> int:
             except (ValueError, OSError):
                 pass
 
+        publish_at = allocate_publish_at()
+        if publish_at:
+            print(f"  公開予約: {publish_at}")
+
         try:
             video_id = upload_video(
                 video_path=path,
@@ -103,9 +108,12 @@ def main() -> int:
                 category_id=yt.get("category_id", "20"),
                 extra_tags=yt.get("default_tags", []),
                 localizations=localizations,
+                publish_at=publish_at,
             )
             if video_id:
                 uploaded += 1
+                if publish_at:
+                    commit_publish_at(publish_at)
         except Exception as e:
             msg = str(e)
             if "quota" in msg.lower() or "403" in msg:

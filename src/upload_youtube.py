@@ -29,6 +29,7 @@ def build_video_metadata(
     extra_tags: list[str] | None = None,
     localizations: dict[str, str] | None = None,
     default_language: str = "ja",
+    publish_at: str | None = None,
 ) -> dict:
     """
     YouTube API の videos.insert に渡す body dict を構築する。
@@ -37,6 +38,8 @@ def build_video_metadata(
         localizations: 言語コード → 翻訳タイトル。視聴者の UI 言語に応じて
             YouTube がタイトルを切り替える（例: {"en": "...", "ru": "..."}）
         default_language: メインタイトルの言語コード
+        publish_at: 予約公開日時（RFC 3339 UTC）。指定時は privacy に関わらず
+            private + publishAt になり、YouTube がその時刻に自動公開する
     """
     tags = extract_tags_from_title(title)
     if extra_tags:
@@ -44,15 +47,18 @@ def build_video_metadata(
             if t not in tags:
                 tags.append(t)
 
+    if publish_at:
+        status = {"privacyStatus": "private", "publishAt": publish_at}
+    else:
+        status = {"privacyStatus": privacy}
+
     body = {
         "snippet": {
             "title": title,
             "categoryId": category_id,
             "tags": tags,
         },
-        "status": {
-            "privacyStatus": privacy,
-        },
+        "status": status,
     }
     if localizations:
         body["snippet"]["defaultLanguage"] = default_language
@@ -134,6 +140,7 @@ def upload_video(
     localizations: dict[str, str] | None = None,
     secrets_path: Path | None = None,
     token_path: Path | None = None,
+    publish_at: str | None = None,
 ) -> str | None:
     """
     動画を YouTube にアップロードして動画 ID を返す。
@@ -147,6 +154,8 @@ def upload_video(
         extra_tags: タイトル外から追加するタグ
         secrets_path: client_secrets.json のパス
         token_path: token.json の保存先
+        publish_at: 予約公開日時（RFC 3339 UTC）。指定時は private で上げて
+            YouTube 側がその時刻に公開する
     """
     import time
     import googleapiclient.discovery
@@ -168,6 +177,7 @@ def upload_video(
     body = build_video_metadata(
         title, privacy=privacy, category_id=category_id,
         extra_tags=extra_tags, localizations=localizations,
+        publish_at=publish_at,
     )
     media = googleapiclient.http.MediaFileUpload(
         str(video_path),
@@ -199,5 +209,8 @@ def upload_video(
 
     mark_as_uploaded(stem, UPLOAD_LOG)
     url = f"https://youtu.be/{video_id}"
-    print(f"アップロード完了: {url}")
+    if publish_at:
+        print(f"アップロード完了（{publish_at} に公開予約）: {url}")
+    else:
+        print(f"アップロード完了: {url}")
     return video_id

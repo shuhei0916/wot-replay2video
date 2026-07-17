@@ -25,6 +25,9 @@ youtube:
   max_per_run: 5             # upload_backlog.py が1回で上げる本数
   llm_title: false           # true: claude -p でタイトル生成 / false: テンプレート（車両, キル, ダメ, 勲章）
   privacy: "public"          # public / unlisted / private
+  schedule:                  # 予約投稿: private + publishAt で上げ、YouTube が自動公開する
+    enabled: true
+    times: ["07:00", "12:30", "19:00"]  # JST の公開スロット（本数/日 = リスト長）
   category_id: "20"          # 20 = Gaming
   default_tags:
     - "WorldOfTanks"

@@ -253,18 +253,24 @@ def upload_shorts(
 ) -> None:
     """Shorts を YouTube にアップロードする。失敗してもパイプラインは継続する。"""
     try:
+        from src.schedule import allocate_publish_at, commit_publish_at
+
         yt = load_config().get("youtube", {})
         if not yt.get("enabled", True):
             print("YouTube アップロードは無効化されています (youtube.enabled: false)")
             return
-        upload_video(
+        publish_at = allocate_publish_at()
+        video_id = upload_video(
             video_path=video_path,
             title=title,
             privacy=yt.get("privacy", "private"),
             category_id=yt.get("category_id", "20"),
             extra_tags=yt.get("default_tags", []),
             localizations=localizations,
+            publish_at=publish_at,
         )
+        if video_id and publish_at:
+            commit_publish_at(publish_at)
     except Exception as e:
         print(f"警告: YouTube アップロードに失敗しました（動画は保持）: {e}")
 

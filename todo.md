@@ -45,15 +45,14 @@
       不要と確定したら削除する。人気タイトルの API 収集案（few-shot 用）も
       LLM 不使用につき見送り
 
-- [ ] **予約投稿（`status.publishAt`）で公開を分散**（2026-07-13 承認済み・未実装）:
-      アップロード時に `privacyStatus: "private"` + `publishAt`（ISO 8601）を指定すると
-      YouTube 側がその時刻に自動公開する。追加クォータ 0、PC の電源 OFF でも公開が
-      途切れない。**スループットは増えない**（クォータ 6本/日のまま）点に注意 —
-      効能は「バースト公開 → 毎日均等公開」への分散のみ。
-      実装: `build_video_metadata()` に publish_at 追加、`upload_backlog.py` に
-      予約スロット割り当て（最後尾の予約日時を記録し 1日N本で先へ詰める。
-      過去時刻指定は即公開になるので最後尾管理で回避）、config に
-      `youtube.schedule: { per_day: N, time: "19:00" }`。
+- [x] **予約投稿（`status.publishAt`）で公開を分散**（2026-07-17 実装・実機検証）:
+      `src/schedule.py`（スロット割り当て + `output/schedule_state.json` の最後尾管理、
+      過去時刻回避のリード15分、state 消失時は now から自己修復）、
+      `build_video_metadata()`/`upload_video()` に publish_at、呼び出し側は
+      upload_backlog と pipeline の両方。config は
+      `youtube.schedule: { enabled, times: ["HH:MM", ...] }`（JST、本数/日 = リスト長）。
+      **運用ノート**: バックログ消化中は times をクォータと同数（6枠）にして
+      予約テールが伸びないようにする。消化後は 3 枠程度へ。
       本数を増やしたい場合は別途**クォータ増枠申請**（YouTube API 監査フォーム、
       無料、審査数週間）が唯一の正攻法。
 - [ ] **タスクスケジューラでの夜間バッチ自動実行**: Windows タスクスケジューラ

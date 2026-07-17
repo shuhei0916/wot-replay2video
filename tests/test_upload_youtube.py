@@ -107,6 +107,20 @@ class TestBuildVideoMetadata:
         meta = build_video_metadata("title #WoT", privacy="private", extra_tags=["WoT"])
         assert meta["snippet"]["tags"].count("WoT") == 1
 
+    def test_publish_at_forces_private(self):
+        # 予約投稿: privacy=public 指定でも private + publishAt になる
+        meta = build_video_metadata(
+            "t", privacy="public", publish_at="2026-07-18T10:00:00Z"
+        )
+        assert meta["status"] == {
+            "privacyStatus": "private",
+            "publishAt": "2026-07-18T10:00:00Z",
+        }
+
+    def test_no_publish_at_keeps_privacy(self):
+        meta = build_video_metadata("t", privacy="public")
+        assert meta["status"] == {"privacyStatus": "public"}
+
 
 # ---- is_uploaded / mark_as_uploaded ----
 
