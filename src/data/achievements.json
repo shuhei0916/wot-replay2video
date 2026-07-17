@@ -1,0 +1,790 @@
+{
+ "achievements": {
+  "10": {
+   "name": "battleHeroes"
+  },
+  "14": {
+   "name": "fragsBeast"
+  },
+  "23": {
+   "name": "sniperSeries"
+  },
+  "24": {
+   "name": "maxSniperSeries"
+  },
+  "25": {
+   "name": "invincibleSeries"
+  },
+  "26": {
+   "name": "maxInvincibleSeries"
+  },
+  "27": {
+   "name": "diehardSeries"
+  },
+  "28": {
+   "name": "maxDiehardSeries"
+  },
+  "29": {
+   "name": "killingSeries"
+  },
+  "30": {
+   "name": "maxKillingSeries"
+  },
+  "31": {
+   "name": "piercingSeries"
+  },
+  "32": {
+   "name": "maxPiercingSeries"
+  },
+  "34": {
+   "name": "warrior",
+   "ja": "トップガン"
+  },
+  "35": {
+   "name": "invader",
+   "ja": "侵略者"
+  },
+  "36": {
+   "name": "sniper",
+   "ja": "スナイパー"
+  },
+  "37": {
+   "name": "defender",
+   "ja": "防衛者"
+  },
+  "38": {
+   "name": "steelwall",
+   "ja": "鋼鉄の壁"
+  },
+  "39": {
+   "name": "supporter",
+   "ja": "共謀者"
+  },
+  "40": {
+   "name": "scout",
+   "ja": "偵察者"
+  },
+  "41": {
+   "name": "medalKay",
+   "ja": "ケイ勲章 %(rank)s"
+  },
+  "42": {
+   "name": "medalCarius",
+   "ja": "カリウス勲章 %(rank)s"
+  },
+  "43": {
+   "name": "medalKnispel",
+   "ja": "クニスペル勲章 %(rank)s"
+  },
+  "44": {
+   "name": "medalPoppel",
+   "ja": "ポーペル勲章 %(rank)s"
+  },
+  "45": {
+   "name": "medalAbrams",
+   "ja": "エイブラムス勲章 %(rank)s"
+  },
+  "46": {
+   "name": "medalLeClerc",
+   "ja": "ルクレール勲章 %(rank)s"
+  },
+  "47": {
+   "name": "medalLavrinenko",
+   "ja": "ラヴリネンコ勲章 %(rank)s"
+  },
+  "48": {
+   "name": "medalEkins",
+   "ja": "イーキンス勲章 %(rank)s"
+  },
+  "49": {
+   "name": "medalWittmann",
+   "ja": "ベルター勲章"
+  },
+  "50": {
+   "name": "medalOrlik",
+   "ja": "オルリック勲章"
+  },
+  "51": {
+   "name": "medalOskin",
+   "ja": "オスキン勲章"
+  },
+  "52": {
+   "name": "medalHalonen",
+   "ja": "ハロネン勲章"
+  },
+  "53": {
+   "name": "medalBurda",
+   "ja": "ブルダ勲章"
+  },
+  "54": {
+   "name": "medalBillotte",
+   "ja": "ビヨット勲章"
+  },
+  "55": {
+   "name": "medalKolobanov",
+   "ja": "コロバノフ勲章"
+  },
+  "56": {
+   "name": "medalFadin",
+   "ja": "ファディン勲章"
+  },
+  "57": {
+   "name": "tankExpert",
+   "ja": "マスター戦車兵"
+  },
+  "61": {
+   "name": "raider",
+   "ja": "奇襲者"
+  },
+  "64": {
+   "name": "kamikaze",
+   "ja": "カミカゼ"
+  },
+  "65": {
+   "name": "lumberjack",
+   "ja": "黒鉄の木こり"
+  },
+  "66": {
+   "name": "beasthunter",
+   "ja": "狩人"
+  },
+  "67": {
+   "name": "mousebane",
+   "ja": "ネズミ捕り"
+  },
+  "72": {
+   "name": "evileye",
+   "ja": "パトロール任務"
+  },
+  "73": {
+   "name": "medalRadleyWalters",
+   "ja": "ラドリー・ウォルターズ勲章"
+  },
+  "74": {
+   "name": "medalLafayettePool",
+   "ja": "プール勲章"
+  },
+  "75": {
+   "name": "medalBrunoPietro",
+   "ja": "ブルーノ勲章"
+  },
+  "76": {
+   "name": "medalTarczay",
+   "ja": "タールツァイ勲章"
+  },
+  "77": {
+   "name": "medalPascucci",
+   "ja": "パスクッチ勲章"
+  },
+  "78": {
+   "name": "medalDumitru",
+   "ja": "ドゥミトル勲章"
+  },
+  "79": {
+   "name": "markOfMastery",
+   "ja": "マスターバッジ: \"%(name)s\""
+  },
+  "106": {
+   "name": "medalLehvaslaiho",
+   "ja": "レヘヴァスライホ勲章"
+  },
+  "107": {
+   "name": "medalNikolas",
+   "ja": "ニコルス勲章"
+  },
+  "108": {
+   "name": "fragsSinai"
+  },
+  "109": {
+   "name": "sinai",
+   "ja": "シナイのライオン"
+  },
+  "110": {
+   "name": "heroesOfRassenay",
+   "ja": "ラシェイニャイ英雄勲章"
+  },
+  "111": {
+   "name": "mechanicEngineer",
+   "ja": "上級技術士官"
+  },
+  "112": {
+   "name": "tankExpert0",
+   "ja": "専門家: ソ連"
+  },
+  "113": {
+   "name": "tankExpert1",
+   "ja": "専門家: ドイツ"
+  },
+  "114": {
+   "name": "tankExpert2",
+   "ja": "専門家: アメリカ"
+  },
+  "115": {
+   "name": "tankExpert3",
+   "ja": "専門家: 中国"
+  },
+  "116": {
+   "name": "tankExpert4",
+   "ja": "専門家: フランス"
+  },
+  "117": {
+   "name": "tankExpert5",
+   "ja": "専門家: イギリス"
+  },
+  "118": {
+   "name": "tankExpert6",
+   "ja": "専門家: 日本"
+  },
+  "119": {
+   "name": "tankExpert7",
+   "ja": "専門家: チェコスロバキア"
+  },
+  "120": {
+   "name": "tankExpert8",
+   "ja": "専門家: スウェーデン"
+  },
+  "121": {
+   "name": "tankExpert9",
+   "ja": "専門家: ポーランド"
+  },
+  "122": {
+   "name": "tankExpert10",
+   "ja": "専門家: イタリア"
+  },
+  "123": {
+   "name": "tankExpert11"
+  },
+  "124": {
+   "name": "tankExpert12"
+  },
+  "125": {
+   "name": "tankExpert13"
+  },
+  "126": {
+   "name": "tankExpert14"
+  },
+  "127": {
+   "name": "mechanicEngineer0",
+   "ja": "技術士官: ソ連"
+  },
+  "128": {
+   "name": "mechanicEngineer1",
+   "ja": "技術士官: ドイツ"
+  },
+  "129": {
+   "name": "mechanicEngineer2",
+   "ja": "技術士官: アメリカ"
+  },
+  "130": {
+   "name": "mechanicEngineer3",
+   "ja": "技術士官: 中国"
+  },
+  "131": {
+   "name": "mechanicEngineer4",
+   "ja": "技術士官: フランス"
+  },
+  "132": {
+   "name": "mechanicEngineer5",
+   "ja": "技術士官: イギリス"
+  },
+  "133": {
+   "name": "mechanicEngineer6",
+   "ja": "技術士官: 日本"
+  },
+  "134": {
+   "name": "mechanicEngineer7",
+   "ja": "技術士官: チェコスロバキア"
+  },
+  "135": {
+   "name": "mechanicEngineer8",
+   "ja": "技術士官: スウェーデン"
+  },
+  "136": {
+   "name": "mechanicEngineer9",
+   "ja": "技術士官: ポーランド"
+  },
+  "137": {
+   "name": "mechanicEngineer10",
+   "ja": "技術士官: イタリア"
+  },
+  "138": {
+   "name": "mechanicEngineer11"
+  },
+  "139": {
+   "name": "mechanicEngineer12"
+  },
+  "140": {
+   "name": "mechanicEngineer13"
+  },
+  "141": {
+   "name": "mechanicEngineer14"
+  },
+  "143": {
+   "name": "medalBrothersInArms",
+   "ja": "戦友"
+  },
+  "144": {
+   "name": "medalCrucialContribution",
+   "ja": "偉大な貢献"
+  },
+  "145": {
+   "name": "medalDeLanglade",
+   "ja": "ドゥ・ラングラード勲章"
+  },
+  "146": {
+   "name": "medalTamadaYoshio",
+   "ja": "玉田美郎の勲章"
+  },
+  "147": {
+   "name": "bombardier",
+   "ja": "爆撃名手"
+  },
+  "148": {
+   "name": "huntsman",
+   "ja": "ナイディン勲章"
+  },
+  "149": {
+   "name": "alaric"
+  },
+  "150": {
+   "name": "sturdy",
+   "ja": "スパルタン"
+  },
+  "151": {
+   "name": "ironMan",
+   "ja": "冷静"
+  },
+  "152": {
+   "name": "luckyDevil",
+   "ja": "幸運"
+  },
+  "153": {
+   "name": "fragsPatton"
+  },
+  "154": {
+   "name": "pattonValley",
+   "ja": "パットンの谷"
+  },
+  "167": {
+   "name": "mechanicEngineerStrg"
+  },
+  "168": {
+   "name": "tankExpertStrg"
+  },
+  "227": {
+   "name": "sniper2",
+   "ja": "タンカー・スナイパー"
+  },
+  "228": {
+   "name": "mainGun",
+   "ja": "大口径"
+  },
+  "294": {
+   "name": "movingAvgDamage"
+  },
+  "295": {
+   "name": "marksOnGun"
+  },
+  "296": {
+   "name": "medalMonolith",
+   "ja": "盤石"
+  },
+  "297": {
+   "name": "medalAntiSpgFire",
+   "ja": "対自走砲カウンター攻撃"
+  },
+  "298": {
+   "name": "medalGore",
+   "ja": "ゴア勲章"
+  },
+  "299": {
+   "name": "medalCoolBlood",
+   "ja": "冷血"
+  },
+  "300": {
+   "name": "medalStark",
+   "ja": "スターク勲章"
+  },
+  "480": {
+   "name": "damageRating"
+  },
+  "481": {
+   "name": "citadel"
+  },
+  "488": {
+   "name": "WFC2014WinSeries"
+  },
+  "489": {
+   "name": "maxWFC2014WinSeries"
+  },
+  "517": {
+   "name": "impenetrable",
+   "ja": "防弾"
+  },
+  "518": {
+   "name": "reliableComradeSeries"
+  },
+  "519": {
+   "name": "reliableComrade",
+   "ja": "戦いの相棒"
+  },
+  "520": {
+   "name": "maxAimerSeries"
+  },
+  "521": {
+   "name": "shootToKill",
+   "ja": "効力射"
+  },
+  "522": {
+   "name": "fighter",
+   "ja": "ファイター"
+  },
+  "523": {
+   "name": "duelist",
+   "ja": "デュエリスト"
+  },
+  "524": {
+   "name": "demolition",
+   "ja": "爆発物専門家"
+  },
+  "525": {
+   "name": "arsonist",
+   "ja": "放火犯"
+  },
+  "526": {
+   "name": "bonecrusher",
+   "ja": "ボクサー"
+  },
+  "527": {
+   "name": "charmed",
+   "ja": "神の手"
+  },
+  "528": {
+   "name": "even",
+   "ja": "目には目を!"
+  },
+  "534": {
+   "name": "deathTrackWinSeries"
+  },
+  "535": {
+   "name": "maxDeathTrackWinSeries"
+  },
+  "538": {
+   "name": "readyForBattleLT",
+   "ja": "模範的功績: 軽戦車"
+  },
+  "539": {
+   "name": "readyForBattleMT",
+   "ja": "模範的功績: 中戦車"
+  },
+  "540": {
+   "name": "readyForBattleHT",
+   "ja": "模範的功績: 重戦車"
+  },
+  "541": {
+   "name": "readyForBattleSPG",
+   "ja": "模範的功績: 自走砲"
+  },
+  "542": {
+   "name": "readyForBattleATSPG",
+   "ja": "模範的功績: 駆逐戦車"
+  },
+  "543": {
+   "name": "readyForBattleALL",
+   "ja": "猛攻撃"
+  },
+  "544": {
+   "name": "tankwomenProgress"
+  },
+  "599": {
+   "name": "testartilleryman",
+   "ja": "ロケット技師"
+  },
+  "873": {
+   "name": "EFC2016WinSeries"
+  },
+  "874": {
+   "name": "maxEFC2016WinSeries"
+  },
+  "876": {
+   "name": "EFC2016Goleador",
+   "ja": "ハットトリック"
+  },
+  "879": {
+   "name": "markIBomberman",
+   "ja": "爆弾使い"
+  },
+  "880": {
+   "name": "markIRepairer",
+   "ja": "野戦修理"
+  },
+  "881": {
+   "name": "markI100Years",
+   "ja": "戦車実用化 100 周年 %(rank)s"
+  },
+  "1200": {
+   "name": "rankedBattlesHeroProgress",
+   "ja": "ランク戦の英雄"
+  },
+  "1209": {
+   "name": "FE18ClosedStage"
+  },
+  "1210": {
+   "name": "FE18SoloStriker"
+  },
+  "1211": {
+   "name": "FE18SoloMidfielder"
+  },
+  "1212": {
+   "name": "FE18SoloDefender"
+  },
+  "1215": {
+   "name": "readyForBattleAllianceUSSR",
+   "ja": "模範的成績: Union"
+  },
+  "1216": {
+   "name": "readyForBattleAllianceGermany",
+   "ja": "模範的成績: Bloc"
+  },
+  "1217": {
+   "name": "readyForBattleAllianceUSA",
+   "ja": "模範的成績: Alliance"
+  },
+  "1218": {
+   "name": "readyForBattleAllianceFrance",
+   "ja": "模範的成績: Coalition"
+  },
+  "1219": {
+   "name": "superTesterVeteran"
+  },
+  "1240": {
+   "name": "RP2018firstmed",
+   "ja": "模範的訓練生 クラス III"
+  },
+  "1241": {
+   "name": "RP2018secondmed",
+   "ja": "模範的訓練生 クラス II"
+  },
+  "1242": {
+   "name": "RP2018thirdmed",
+   "ja": "模範的訓練生 クラス I"
+  },
+  "1243": {
+   "name": "RP2018sergeant",
+   "ja": "ハートマン勲章 %(rank)s"
+  },
+  "1248": {
+   "name": "rankedDivisionFighter",
+   "ja": "遠征王 %(rank)s"
+  },
+  "1249": {
+   "name": "rankedStayingPower",
+   "ja": "より速く、より高く、より強く! %(rank)s"
+  },
+  "1398": {
+   "name": "BR2019Top1Solo",
+   "ja": "私は悪など恐れない"
+  },
+  "1399": {
+   "name": "BR2019Top1Squad",
+   "ja": "我々は悪など恐れない"
+  },
+  "1412": {
+   "name": "superTesterVeteranCross"
+  },
+  "1431": {
+   "name": "rankedDivisionCounter"
+  },
+  "1432": {
+   "name": "rankedStayingCounter"
+  },
+  "1437": {
+   "name": "collectorVehicleStrg"
+  },
+  "1438": {
+   "name": "collectorVehicle",
+   "ja": "ベテランコレクター"
+  },
+  "1439": {
+   "name": "collectorVehicle0",
+   "ja": "ソ連コレクター"
+  },
+  "1440": {
+   "name": "collectorVehicle1",
+   "ja": "ドイツコレクター"
+  },
+  "1441": {
+   "name": "collectorVehicle2",
+   "ja": "アメリカコレクター"
+  },
+  "1442": {
+   "name": "collectorVehicle3",
+   "ja": "中国コレクター"
+  },
+  "1443": {
+   "name": "collectorVehicle4",
+   "ja": "フランスコレクター"
+  },
+  "1444": {
+   "name": "collectorVehicle5",
+   "ja": "イギリスコレクター"
+  },
+  "1445": {
+   "name": "collectorVehicle6",
+   "ja": "日本コレクター"
+  },
+  "1446": {
+   "name": "collectorVehicle7",
+   "ja": "チェコスロバキアコレクター"
+  },
+  "1447": {
+   "name": "collectorVehicle8",
+   "ja": "スウェーデンコレクター"
+  },
+  "1448": {
+   "name": "collectorVehicle9",
+   "ja": "ポーランドコレクター"
+  },
+  "1449": {
+   "name": "collectorVehicle10",
+   "ja": "イタリアコレクター"
+  },
+  "1450": {
+   "name": "collectorVehicle11"
+  },
+  "1451": {
+   "name": "collectorVehicle12"
+  },
+  "1452": {
+   "name": "collectorVehicle13"
+  },
+  "1453": {
+   "name": "collectorVehicle14"
+  },
+  "1455": {
+   "name": "TenYearsCountdownStageMedal"
+  },
+  "1457": {
+   "name": "marksOfMasteryCount1"
+  },
+  "1458": {
+   "name": "marksOfMasteryCount2"
+  },
+  "1459": {
+   "name": "marksOfMasteryCount3"
+  },
+  "1460": {
+   "name": "marksOfMasteryCount4"
+  },
+  "1473": {
+   "name": "wtHunterWins",
+   "ja": "電圧消失"
+  },
+  "1474": {
+   "name": "wtBossWins",
+   "ja": "稲妻の化身"
+  },
+  "1475": {
+   "name": "wtSpecBossDefeat",
+   "ja": "漏電"
+  },
+  "1486": {
+   "name": "RP2018sergeantCounter"
+  },
+  "1560": {
+   "name": "wtxHunterWins",
+   "ja": "3本の避雷針"
+  },
+  "1561": {
+   "name": "wtxBossWins",
+   "ja": "押し寄せる電圧"
+  },
+  "1562": {
+   "name": "wtxSpecBossDefeat",
+   "ja": "電力完全遮断"
+  },
+  "1639": {
+   "name": "whiteTiger2012",
+   "ja": "ホワイトタイガー"
+  },
+  "1648": {
+   "name": "lunarNY2022Progression"
+  },
+  "1650": {
+   "name": "oowTankmanWins",
+   "ja": "連携マスター"
+  },
+  "1651": {
+   "name": "oowStrategistWins",
+   "ja": "天才戦術家"
+  },
+  "1652": {
+   "name": "oowCompetetiveWin",
+   "ja": "チェックメイト"
+  },
+  "1654": {
+   "name": "mapboxUniversal",
+   "ja": "地誌学マスター"
+  },
+  "1656": {
+   "name": "wclTournamentParticipant",
+   "ja": "WCLトーナメント参加賞"
+  },
+  "1657": {
+   "name": "wclParticipant",
+   "ja": "WCL参加賞"
+  },
+  "1676": {
+   "name": "wt2022HunterWins",
+   "ja": "誰もが望む半導体"
+  },
+  "1677": {
+   "name": "wt2022BossWins",
+   "ja": "《若造》と侮るなかれ"
+  },
+  "1678": {
+   "name": "wt2022SpecBossDefeat",
+   "ja": "大地を駆ける自由電子"
+  },
+  "1914": {
+   "name": "wt2023HunterWins",
+   "ja": "神を屠りし者"
+  },
+  "1915": {
+   "name": "wt2023BossWins",
+   "ja": "ヒュペリオンの咆哮"
+  },
+  "1916": {
+   "name": "wt2023MaxPlasma",
+   "ja": "強奪せし力"
+  },
+  "2000": {
+   "name": "wt2024HunterWins",
+   "ja": "オリンポス陥落せり"
+  },
+  "2001": {
+   "name": "wt2024BossWins",
+   "ja": "終末の神鳴り"
+  },
+  "2002": {
+   "name": "wt2024HunterWinsEpic",
+   "ja": "正義の番犬"
+  },
+  "2003": {
+   "name": "mapboxClimateExpert",
+   "ja": "気象専門家"
+  },
+  "2027": {
+   "name": "readyForBattleAssault",
+   "ja": "模範的成績: Vanguard"
+  },
+  "2028": {
+   "name": "readyForBattleSniper",
+   "ja": "模範的成績: Ambush"
+  },
+  "2029": {
+   "name": "readyForBattleSupport",
+   "ja": "模範的成績: Assistance"
+  }
+ }
+}

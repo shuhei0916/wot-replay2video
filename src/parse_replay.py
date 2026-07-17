@@ -29,6 +29,7 @@ class PlayerStats:
     xp: int
     credits: int
     mark_of_mastery: int
+    achievements: list[int] = field(default_factory=list)
 
     @property
     def hit_rate(self) -> float:
@@ -91,15 +92,19 @@ def _vehicle_display_name(vehicle_tag: str) -> str:
 
 
 def generate_title(info: "BattleInfo") -> str:
-    """BattleInfo からショート動画用タイトルを生成する。"""
+    """
+    BattleInfo からショート動画用タイトルを生成する。
+
+    形式: 「タンク名, キル数, ダメージ数, 勲章（あれば）」（2026-07-17 方針）。
+    LLM は使わないシンプルな固定テンプレート。
+    """
+    from src.achievements import notable_medals
+
     vehicle = _vehicle_display_name(info.player_vehicle)
     s = info.player_stats
-    result = "勝利" if info.player_won else "敗北"
-    survived = "" if s.survived else "（撃破）"
-    return (
-        f"【WoT】{vehicle} / {s.kills}kill / {s.damage_dealt:,}DMG"
-        f" / {info.map_name} / {result}{survived} #Shorts #WorldOfTanks"
-    )
+    parts = [vehicle, f"{s.kills}キル", f"{s.damage_dealt:,}ダメージ"]
+    parts += notable_medals(s.achievements)
+    return ", ".join(parts)
 
 
 def parse_replay(path: Path) -> BattleInfo:
@@ -139,6 +144,7 @@ def parse_replay(path: Path) -> BattleInfo:
         xp=personal_entry["xp"],
         credits=personal_entry["credits"],
         mark_of_mastery=personal_entry["markOfMastery"],
+        achievements=personal_entry.get("achievements", []),
     )
 
     # Block 1 の vehicles から vehicleID → 名前のマップを作る

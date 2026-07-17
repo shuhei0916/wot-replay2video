@@ -23,7 +23,7 @@ batch:
 youtube:
   enabled: true              # パイプラインからの自動アップロード
   max_per_run: 5             # upload_backlog.py が1回で上げる本数
-  llm_title: true            # claude -p でタイトル生成（失敗時はテンプレートにフォールバック）
+  llm_title: false           # true: claude -p でタイトル生成 / false: テンプレート（車両, キル, ダメ, 勲章）
   privacy: "public"          # public / unlisted / private
   category_id: "20"          # 20 = Gaming
   default_tags:

@@ -15,7 +15,7 @@ from src.llm_title import (
 from src.parse_replay import BattleInfo, PlayerStats
 
 
-def _info() -> BattleInfo:
+def _info(achievements: list[int] | None = None, mastery: int = 2) -> BattleInfo:
     return BattleInfo(
         player_name="PrsimPrsim",
         player_vehicle="china-Ch20_Type58",
@@ -30,9 +30,13 @@ def _info() -> BattleInfo:
             kills=3, damage_dealt=1500, shots=10, direct_hits=7,
             survived=True, hp_remaining=200, spotted=2,
             damage_assisted_radio=500, xp=1200, credits=30000,
-            mark_of_mastery=2,
+            mark_of_mastery=mastery,
+            achievements=achievements or [],
         ),
     )
+
+
+KOLOBANOV = 55  # medalKolobanov の DB ID
 
 
 class TestBuildPrompt:
@@ -45,6 +49,28 @@ class TestBuildPrompt:
     def test_requests_marker_format(self):
         prompt = build_prompt(_info())
         assert "<title>" in prompt
+
+    def test_no_hit_rate_in_facts(self):
+        # 命中率は戦績として渡さない（2026-07-14 のフィードバック）
+        assert "命中率:" not in build_prompt(_info())
+        assert "70%" not in build_prompt(_info())
+
+    def test_requires_vehicle_name(self):
+        assert "車両名を必ず入れる" in build_prompt(_info())
+
+    def test_medal_included_with_rule(self):
+        prompt = build_prompt(_info(achievements=[KOLOBANOV]))
+        assert "コロバノフ勲章" in prompt
+        assert "勲章名を必ずタイトルに入れる" in prompt
+
+    def test_no_medal_no_rule(self):
+        prompt = build_prompt(_info())
+        assert "獲得した勲章" not in prompt
+        assert "勲章名を必ずタイトルに入れる" not in prompt
+
+    def test_ace_mastery_listed(self):
+        prompt = build_prompt(_info(mastery=4))
+        assert "マスターバッジ「エース」" in prompt
 
 
 class TestCleanTitle:

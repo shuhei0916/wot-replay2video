@@ -9,6 +9,7 @@ claude CLI が無い・失敗した場合は None を返し、呼び出し側が
 import re
 import subprocess
 
+from src.achievements import notable_medals
 from src.parse_replay import BattleInfo, _vehicle_display_name
 
 MAX_TITLE_LEN = 100  # YouTube のタイトル上限
@@ -24,28 +25,57 @@ _LANG_MARKER_RE = re.compile(r"<(ja|en|ru)>(.*?)</\1>", re.DOTALL)
 _META_MARKERS = ("タイトル", "生成", "以下", "案:", "出力", "承知", "了解")
 
 
-def build_prompt(info: BattleInfo) -> str:
-    """戦績情報から claude への指示プロンプトを組み立てる。"""
+def _battle_facts(info: BattleInfo) -> str:
+    """プロンプトに渡す戦績サマリー。タイトルに使う情報だけに絞る。"""
     s = info.player_stats
     result = "勝利" if info.player_won else "敗北"
     survived = "生存" if s.survived else "撃破された"
+    lines = [
+        f"- 車両: {_vehicle_display_name(info.player_vehicle)}",
+        f"- マップ: {info.map_name}",
+        f"- 結果: {result}（{survived}）",
+        f"- キル数: {s.kills}",
+        f"- 与ダメージ: {s.damage_dealt}",
+    ]
+    medals = notable_medals(s.achievements)
+    if s.mark_of_mastery == 4:
+        medals.append("マスターバッジ「エース」")
+    if medals:
+        lines.append(f"- 獲得した勲章: {'、'.join(medals)}")
+    return "\n".join(lines)
+
+
+def _style_rules(info: BattleInfo) -> str:
+    """タイトルのスタイル指示（日本語基準）。"""
+    has_medal = bool(notable_medals(info.player_stats.achievements))
+    medal_rule = (
+        "- 勲章を獲得しているので、その勲章名を必ずタイトルに入れる（レアな見せ場の証明）\n"
+        if has_medal
+        else ""
+    )
+    return (
+        "- 車両名を必ず入れる\n"
+        + medal_rule
+        + "- 短くシンプルに（車両名・勲章名を除いて15文字前後）。口語で、"
+        "人がぽろっとつぶやいた一言の温度感\n"
+        "- 例の雰囲気: 「O-I 100、今日は当たる日」「T95 でコロバノフ勲章きた」\n"
+        "- 命中率などの細かい数字は書かない。数字を入れるなら多くて1つ"
+        "（キル数か与ダメのどちらか、それが見どころのときだけ）\n"
+        "- 絵文字は合うときだけ最大1個（毎回は付けない）\n"
+        "- ハッシュタグ不要\n"
+    )
+
+
+def build_prompt(info: BattleInfo) -> str:
+    """戦績情報から claude への指示プロンプトを組み立てる。"""
     return (
         "World of Tanks の実況なし戦闘動画（YouTube Shorts）のタイトルを1つ考えてください。\n"
         "\n"
         "戦績:\n"
-        f"- 車両: {_vehicle_display_name(info.player_vehicle)}\n"
-        f"- マップ: {info.map_name}\n"
-        f"- 結果: {result}（{survived}）\n"
-        f"- キル数: {s.kills}\n"
-        f"- 与ダメージ: {s.damage_dealt}\n"
-        f"- 命中率: {s.hit_rate:.0%}（{s.direct_hits}/{s.shots}）\n"
+        f"{_battle_facts(info)}\n"
         "\n"
         "スタイル:\n"
-        "- 短く（20文字前後まで）。口語で、人がぽろっとつぶやいた一言のような温度感\n"
-        "- 例の雰囲気: 「弾あたらん…」「今日は当たる日」「O-I 100 は正義」\n"
-        "- 戦績の数字を羅列しない（1つ入れるなら効果的なものだけ）\n"
-        "- 絵文字は合うときだけ最大1個（毎回は付けない）\n"
-        "- ハッシュタグ不要\n"
+        f"{_style_rules(info)}"
         "\n"
         "出力は <title>タイトル</title> の形式で、タイトルだけを書いてください。\n"
         "前置き・説明・複数案は不要です。\n"
@@ -54,27 +84,17 @@ def build_prompt(info: BattleInfo) -> str:
 
 def build_multilang_prompt(info: BattleInfo) -> str:
     """日本語 + 英語 + ロシア語のタイトルを一度に生成する指示プロンプト。"""
-    s = info.player_stats
-    result = "勝利" if info.player_won else "敗北"
-    survived = "生存" if s.survived else "撃破された"
     return (
         "World of Tanks の実況なし戦闘動画（YouTube Shorts）のタイトルを、\n"
         "日本語・英語・ロシア語で1つずつ考えてください。\n"
         "\n"
         "戦績:\n"
-        f"- 車両: {_vehicle_display_name(info.player_vehicle)}\n"
-        f"- マップ: {info.map_name}\n"
-        f"- 結果: {result}（{survived}）\n"
-        f"- キル数: {s.kills}\n"
-        f"- 与ダメージ: {s.damage_dealt}\n"
-        f"- 命中率: {s.hit_rate:.0%}（{s.direct_hits}/{s.shots}）\n"
+        f"{_battle_facts(info)}\n"
         "\n"
-        "スタイル（3言語とも共通）:\n"
-        "- 短く（日本語なら20文字前後まで）。口語で、人がぽろっとつぶやいた一言の温度感\n"
-        "- 日本語の例の雰囲気: 「弾あたらん…」「今日は当たる日」\n"
-        "- 英語・ロシア語は直訳ではなく、その言語で自然な同じ温度感の一言にする\n"
-        "- 戦績の数字を羅列しない。絵文字は合うときだけ最大1個\n"
-        "- ハッシュタグ不要\n"
+        "スタイル（3言語とも共通、字数は日本語基準）:\n"
+        f"{_style_rules(info)}"
+        "- 英語・ロシア語は直訳ではなく、その言語で自然な同じ温度感の一言にする"
+        "（勲章名は各言語の公式名: 例 medalKolobanov → Kolobanov's Medal / медаль Колобанова）\n"
         "\n"
         "出力は次の3行だけ（前置き・説明は不要）:\n"
         "<ja>日本語タイトル</ja>\n"

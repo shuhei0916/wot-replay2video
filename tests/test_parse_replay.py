@@ -9,7 +9,13 @@ from pathlib import Path
 # テスト用リプレイ（解析済みの既知ファイル）
 REPLAY_FILE = Path(__file__).parent / "fixtures" / "20260604_1729_china-Ch20_Type58_115_sweden.wotreplay"
 
-from src.parse_replay import parse_replay, read_replay_version, BattleInfo, PlayerStats
+from src.parse_replay import (
+    BattleInfo,
+    PlayerStats,
+    generate_title,
+    parse_replay,
+    read_replay_version,
+)
 
 
 @pytest.fixture(scope="module")
@@ -123,6 +129,48 @@ class TestPlayerStats:
     def test_hit_rate(self, stats):
         # 13/23 ≈ 56.5%
         assert abs(stats.hit_rate - 13 / 23) < 0.001
+
+
+# ---- タイトル生成 ----
+
+class TestGenerateTitle:
+    KOLOBANOV = 55  # medalKolobanov の DB ID
+    TOP_GUN = 34    # warrior
+
+    def _info(self, achievements: list[int]) -> BattleInfo:
+        import datetime
+        return BattleInfo(
+            player_name="PrsimPrsim",
+            player_vehicle="usa-A40_T95",
+            map_name="砂の川",
+            game_version="2.3.0.0",
+            region="ASIA",
+            battle_time=datetime.datetime(2026, 7, 7, 23, 18, 0),
+            duration_seconds=400,
+            winner_team=1,
+            player_team=1,
+            player_stats=PlayerStats(
+                kills=2, damage_dealt=2416, shots=10, direct_hits=8,
+                survived=True, hp_remaining=100, spotted=1,
+                damage_assisted_radio=0, xp=900, credits=20000,
+                mark_of_mastery=2, achievements=achievements,
+            ),
+        )
+
+    def test_simple_format(self):
+        # 「タンク名, キル数, ダメージ数」（2026-07-17 方針）
+        assert generate_title(self._info([])) == "T95, 2キル, 2,416ダメージ"
+
+    def test_medal_appended(self):
+        title = generate_title(self._info([self.KOLOBANOV]))
+        assert title == "T95, 2キル, 2,416ダメージ, コロバノフ勲章"
+
+    def test_multiple_medals_epic_first(self):
+        title = generate_title(self._info([self.TOP_GUN, self.KOLOBANOV]))
+        assert title == "T95, 2キル, 2,416ダメージ, コロバノフ勲章, トップガン"
+
+    def test_fixture_replay(self, info):
+        assert generate_title(info) == "Type58, 1キル, 974ダメージ"
 
 
 # ---- 全車両リスト ----
