@@ -15,6 +15,12 @@ import json
 import sys
 from pathlib import Path
 
+# コンソールが CP932 でも LLM 生成タイトル等の非対応文字（✨ など）で
+# 落ちないようにする（表示は化けてもアップロードは止めない）
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None and hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(errors="replace")
+
 from src.config import OUTPUT_DIR, load_config, replays_dir
 from src.parse_replay import parse_replay
 from src.pipeline import MIN_AUDIO_BITRATE, _audio_bitrate
