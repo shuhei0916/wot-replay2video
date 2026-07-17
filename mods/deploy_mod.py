@@ -15,6 +15,8 @@ mod_shot_logger を py2.7 バイトコードにコンパイルして res_mods �
   64bit Python (py -3.8) から ctypes でロードしてコンパイルに使う
 """
 
+from __future__ import annotations  # py -3.8 委譲実行で PEP 585 注釈を許すため
+
 import ctypes
 import shutil
 import struct
