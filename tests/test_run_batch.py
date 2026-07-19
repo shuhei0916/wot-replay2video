@@ -34,3 +34,10 @@ class TestCollectReplays:
         b = _copy_as(tmp_path, "20260622_0000_b.wotreplay")
         a = _copy_as(tmp_path, "20260620_0000_a.wotreplay")
         assert collect_replays(tmp_path) == [a, b]
+
+    def test_non_date_names_excluded(self, tmp_path):
+        # ゲームが書き込み中の temp.wotreplay は候補にもバージョン判定にも使わない
+        # （"temp" は辞書順で日付より後ろに来て「最新リプレイ」扱いになる事故があった）
+        a = _copy_as(tmp_path, "20260620_0000_a.wotreplay")
+        (tmp_path / "temp.wotreplay").write_bytes(b"\x00" * 16)
+        assert collect_replays(tmp_path) == [a]

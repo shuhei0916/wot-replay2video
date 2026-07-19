@@ -27,8 +27,12 @@ MIN_DATE = "20260619"
 
 def collect_replays(replay_dir: Path | None = None) -> list[Path]:
     replay_dir = replay_dir if replay_dir is not None else replays_dir()
+    # 先頭8桁が日付のファイルのみ対象。ゲームが書き込み中の temp.wotreplay 等を
+    # 除外する（辞書順比較だと "temp..." が MIN_DATE を超えてしまい、さらに
+    # sorted() の最後尾に来てバージョン判定まで壊す）
     candidates = sorted(
-        p for p in replay_dir.glob("*.wotreplay") if p.name[:8] >= MIN_DATE
+        p for p in replay_dir.glob("*.wotreplay")
+        if p.name[:8].isdigit() and p.name[:8] >= MIN_DATE
     )
     if not candidates:
         return []
