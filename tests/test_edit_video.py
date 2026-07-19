@@ -11,6 +11,7 @@ from src.edit_video import (
     CLIP_PRE_SEC,
     SHORTS_MAX_SEC,
     _dedup_clips,
+    build_filter_args,
     select_clips,
 )
 
@@ -80,3 +81,40 @@ class TestSelectClips:
         events = [_event(10.0)]
         selected = select_clips(events, max_total_sec=1.0)
         assert len(selected) == 1
+
+
+# ---- build_filter_args: フィルタ引数の組み立て ----
+
+HP_OVERLAY = {
+    "enabled": True,
+    "src": {"x": 3, "y": 873, "w": 224, "h": 18},
+    "dst": {"w": 874, "y": 300},
+}
+
+
+class TestBuildFilterArgs:
+    def test_without_overlay_uses_vf(self):
+        args = build_filter_args(1920, 1080, None)
+        assert args == ["-vf", "crop=607:1080:656:0,scale=1080:1920"]
+
+    def test_with_overlay_uses_filter_complex(self):
+        flag, graph = build_filter_args(1920, 1080, HP_OVERLAY)
+        assert flag == "-filter_complex"
+        # 中央 9:16 クロップは overlay 有無で変わらない
+        assert "crop=607:1080:656:0,scale=1080:1920" in graph
+        # HP バーの切り出し矩形
+        assert "crop=224:18:3:873" in graph
+        # 高さはアスペクト比維持: 18 * 874 / 224 = 70.2 → 70
+        assert "scale=874:70:flags=lanczos" in graph
+        # 中央寄せ: (1080 - 874) // 2 = 103
+        assert "overlay=103:300" in graph
+
+    def test_overlay_dst_height_keeps_aspect(self):
+        cfg = {
+            "enabled": True,
+            "src": {"x": 0, "y": 0, "w": 100, "h": 20},
+            "dst": {"w": 500, "y": 100},
+        }
+        _, graph = build_filter_args(1920, 1080, cfg)
+        assert "scale=500:100:flags=lanczos" in graph  # 20 * 500/100 = 100
+        assert "overlay=290:100" in graph              # (1080-500)//2 = 290

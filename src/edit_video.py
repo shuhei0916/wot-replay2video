@@ -10,7 +10,7 @@
 import subprocess
 from pathlib import Path
 
-from src.config import OUTPUT_DIR, find_ffmpeg
+from src.config import OUTPUT_DIR, find_ffmpeg, load_config
 from src.detect_highlights import HighlightEvent
 
 # Shorts 仕様
@@ -68,6 +68,53 @@ def select_clips(
     return sorted(selected, key=lambda e: e.timestamp)
 
 
+def hp_overlay_config() -> dict | None:
+    """config.yaml の shorts.hp_overlay を返す。無効・未設定なら None。"""
+    cfg = (load_config().get("shorts") or {}).get("hp_overlay") or {}
+    if not cfg.get("enabled"):
+        return None
+    return cfg
+
+
+def build_filter_args(
+    src_width: int,
+    src_height: int,
+    hp_overlay: dict | None = None,
+) -> list[str]:
+    """
+    クリップ切り出し用の ffmpeg フィルタ引数を組み立てる。
+
+    基本は中央 9:16 クロップ + 拡大。hp_overlay が指定されていれば、
+    元フレーム左下 HUD の HP バー矩形（src）を切り出して縦動画上部
+    （dst: 幅 w で中央寄せ、上端 y）に重ねる filter_complex になる。
+    HP バーは毎フレーム元映像から取るので、被弾によるバーの変化も映る。
+    """
+    crop_w = int(src_height * 9 / 16)
+    crop_h = src_height
+    crop_x = (src_width - crop_w) // 2
+    base = (
+        f"crop={crop_w}:{crop_h}:{crop_x}:0,"
+        f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}"
+    )
+    if hp_overlay is None:
+        return ["-vf", base]
+
+    s, d = hp_overlay["src"], hp_overlay["dst"]
+    dst_w = d["w"]
+    dst_h = round(s["h"] * dst_w / s["w"])  # アスペクト比維持
+    dst_x = (SHORTS_WIDTH - dst_w) // 2
+    return [
+        "-filter_complex",
+        (
+            f"[0:v]split=2[main][hud];"
+            f"[main]{base}[bg];"
+            f"[hud]crop={s['w']}:{s['h']}:{s['x']}:{s['y']},"
+            f"scale={dst_w}:{dst_h}:flags=lanczos[bar];"
+            f"[bg][bar]overlay={dst_x}:{d['y']}"
+        ),
+    ]
+
+
 def clip_and_crop(
     video_path: Path,
     start: float,
@@ -75,6 +122,7 @@ def clip_and_crop(
     output_path: Path,
     src_width: int = 1920,
     src_height: int = 1080,
+    hp_overlay: dict | None = None,
 ) -> Path:
     """
     動画の指定区間を切り出し、中央を 9:16 にクロップして保存する。
@@ -85,18 +133,12 @@ def clip_and_crop(
         duration: 切り出し秒数
         output_path: 出力パス
         src_width/src_height: 元動画の解像度
+        hp_overlay: shorts.hp_overlay 設定（None なら重畳なし）
 
     Returns:
         出力ファイルパス
     """
     ffmpeg = _find_ffmpeg()
-
-    # 9:16 にするためのクロップサイズを計算
-    # 元が 1920x1080 の場合: 高さ 1080 を基準に幅 = 1080 * 9/16 = 607
-    crop_w = int(src_height * 9 / 16)
-    crop_h = src_height
-    crop_x = (src_width - crop_w) // 2
-    crop_y = 0
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -106,10 +148,7 @@ def clip_and_crop(
             "-ss", str(max(0, start)),
             "-i", str(video_path),
             "-t", str(duration),
-            "-vf", (
-                f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},"
-                f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}"
-            ),
+            *build_filter_args(src_width, src_height, hp_overlay),
             "-c:v", "libx264",
             "-preset", "fast",
             "-crf", "23",
@@ -158,10 +197,12 @@ def make_shorts(
     clips_dir.mkdir(exist_ok=True)
     clip_paths: list[Path] = []
 
+    hp_overlay = hp_overlay_config()
+
     for i, event in enumerate(selected):
         start = event.timestamp - CLIP_PRE_SEC
         clip_out = clips_dir / f"clip_{i:03d}_{event.timestamp:.1f}s.mp4"
-        clip_and_crop(video_path, start, clip_duration, clip_out)
+        clip_and_crop(video_path, start, clip_duration, clip_out, hp_overlay=hp_overlay)
         clip_paths.append(clip_out)
         print(f"  clip {i+1}/{len(selected)}: {event.timestamp:.1f}s (score={event.score:.3f}) → {clip_out.name}")
 
