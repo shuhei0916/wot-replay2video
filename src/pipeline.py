@@ -209,8 +209,9 @@ def record_replay(replay_path: Path) -> Path:
             if death_cfg.get("enabled") else None
         )
 
+        # 15分フル戦闘 + カウントダウン残りで 900 秒をわずかに超えることがある
         print("[4/5] リプレイ終了を待機中...")
-        if not wait_for_replay_end(battle_log_offset, timeout=900, early_stop=early_stop):
+        if not wait_for_replay_end(battle_log_offset, timeout=960, early_stop=early_stop):
             print("警告: リプレイ終了の検出がタイムアウトしました（強制終了）")
 
         print("[5/5] 録画停止・WoT 終了...")
