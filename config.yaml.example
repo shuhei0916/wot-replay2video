@@ -17,6 +17,16 @@ batch:
   min_damage: 1500
   min_mastery: 3             # 3 = 1級, 4 = M章
 
+recording:
+  intro_skip:              # 開幕カウントダウンを右矢印キー(+10秒シーク)で飛ばす
+    enabled: true
+    presses: 2             # 送信回数（2回 = +20秒。押しすぎると戦闘序盤に食い込む）
+    interval_sec: 1.2
+    delay_sec: 5           # ロード完了(ReplayBattleSpace)検出からキー送信までの待ち
+  death_cutoff:            # 自車撃破後、grace_sec 経過で録画を打ち切る（mod の death イベント使用）
+    enabled: true
+    grace_sec: 20
+
 shorts:
   hp_overlay:                # 左下HUDのHPバーを切り出して縦動画上部に重ねる
     enabled: true

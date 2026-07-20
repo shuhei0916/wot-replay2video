@@ -137,7 +137,7 @@ class TestGenerateTitle:
     KOLOBANOV = 55  # medalKolobanov の DB ID
     TOP_GUN = 34    # warrior
 
-    def _info(self, achievements: list[int]) -> BattleInfo:
+    def _info(self, achievements: list[int], kills: int = 2) -> BattleInfo:
         import datetime
         return BattleInfo(
             player_name="PrsimPrsim",
@@ -150,7 +150,7 @@ class TestGenerateTitle:
             winner_team=1,
             player_team=1,
             player_stats=PlayerStats(
-                kills=2, damage_dealt=2416, shots=10, direct_hits=8,
+                kills=kills, damage_dealt=2416, shots=10, direct_hits=8,
                 survived=True, hp_remaining=100, spotted=1,
                 damage_assisted_radio=0, xp=900, credits=20000,
                 mark_of_mastery=2, achievements=achievements,
@@ -168,6 +168,14 @@ class TestGenerateTitle:
     def test_multiple_medals_epic_first(self):
         title = generate_title(self._info([self.TOP_GUN, self.KOLOBANOV]))
         assert title == "T95, 2キル, 2,416ダメージ, コロバノフ勲章, トップガン"
+
+    def test_zero_kills_omitted(self):
+        # 0キルはアピールにならないので項目ごと省く（2026-07-20 方針）
+        assert generate_title(self._info([], kills=0)) == "T95, 2,416ダメージ"
+
+    def test_zero_kills_with_medal(self):
+        title = generate_title(self._info([self.KOLOBANOV], kills=0))
+        assert title == "T95, 2,416ダメージ, コロバノフ勲章"
 
     def test_fixture_replay(self, info):
         assert generate_title(info) == "Type58, 1キル, 974ダメージ"

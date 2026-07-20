@@ -22,6 +22,8 @@ from src.launcher import (
     is_wot_foreground,
     kill_wot,
     launch_replay,
+    send_right_arrow,
+    wait_for_log_marker,
     wait_for_replay_end,
     wait_for_replay_start,
 )
@@ -89,6 +91,60 @@ def _remux_faststart(src: Path) -> Path:
     )
 
 
+def death_epoch_from_events(data: dict) -> float | None:
+    """mod イベントデータから最初の death イベントの epoch を返す。無ければ None。"""
+    for e in data.get("events", []):
+        if e.get("type") == "death":
+            try:
+                return float(e["epoch"])
+            except (KeyError, TypeError, ValueError):
+                return None
+    return None
+
+
+def _make_death_early_stop(grace_sec: float):
+    """
+    死亡後 grace_sec 経過で録画を打ち切るための early_stop コールバックを作る。
+    mod の shot_events.json を毎回読み直す（death は1回しか記録されない）。
+    """
+    notified = [False]
+
+    def check() -> bool:
+        try:
+            data = json.loads(SHOT_EVENTS_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        death = death_epoch_from_events(data)
+        if death is None:
+            return False
+        if not notified[0]:
+            notified[0] = True
+            print(f"  自車撃破を検出。{grace_sec:.0f} 秒後に録画を打ち切ります")
+        return time.time() >= death + grace_sec
+
+    return check
+
+
+def _skip_intro(launched_at: float, cfg: dict) -> None:
+    """
+    開幕カウントダウンを右矢印キー（+10秒シーク）で飛ばす。
+
+    ロード完了（BattleLoadingSpace → ReplayBattleSpace 遷移、arena period 2 =
+    カウントダウン開始）を python.log で待ってからキーを送る。
+    失敗してもリプレイは普通に流れるだけなので、全て警告止まりで続行する。
+    """
+    if not wait_for_log_marker("ReplayBattleSpace", launched_at, timeout=90):
+        print("  警告: ロード完了を検出できず開幕スキップを見送ります")
+        return
+    time.sleep(float(cfg.get("delay_sec", 5)))
+    if not is_wot_foreground():
+        print("  警告: WoT が前面にないため開幕スキップを見送ります")
+        return
+    presses = int(cfg.get("presses", 2))
+    send_right_arrow(presses, float(cfg.get("interval_sec", 1.2)))
+    print(f"  開幕スキップ: 右矢印 ×{presses}（+{presses * 10} 秒シーク）")
+
+
 def record_replay(replay_path: Path) -> Path:
     """
     リプレイを再生しながら OBS で録画して、動画ファイルパスを返す。
@@ -141,8 +197,20 @@ def record_replay(replay_path: Path) -> Path:
                 "録画開始時に WoT が前面にありません。中断します"
             )
 
+        rec_cfg = load_config().get("recording", {})
+
+        intro_cfg = rec_cfg.get("intro_skip", {})
+        if intro_cfg.get("enabled"):
+            _skip_intro(launched_at, intro_cfg)
+
+        death_cfg = rec_cfg.get("death_cutoff", {})
+        early_stop = (
+            _make_death_early_stop(float(death_cfg.get("grace_sec", 20)))
+            if death_cfg.get("enabled") else None
+        )
+
         print("[4/5] リプレイ終了を待機中...")
-        if not wait_for_replay_end(battle_log_offset, timeout=900):
+        if not wait_for_replay_end(battle_log_offset, timeout=900, early_stop=early_stop):
             print("警告: リプレイ終了の検出がタイムアウトしました（強制終了）")
 
         print("[5/5] 録画停止・WoT 終了...")

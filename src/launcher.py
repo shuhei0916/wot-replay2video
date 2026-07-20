@@ -204,7 +204,11 @@ def wait_for_replay_start(launched_at: float, timeout: int = 180) -> int:
     return 0
 
 
-def wait_for_replay_end(log_offset: int, timeout: int = 900) -> bool:
+def wait_for_replay_end(
+    log_offset: int,
+    timeout: int = 900,
+    early_stop=None,
+) -> bool:
     """
     リプレイ終了を python.log で検出する。
 
@@ -215,13 +219,17 @@ def wait_for_replay_end(log_offset: int, timeout: int = 900) -> bool:
     Args:
         log_offset: 起動前の python.log バイト数
         timeout: 最大待機秒数（デフォルト15分）
+        early_stop: True を返したら終了扱いにするコールバック
+                    （死亡後の録画打ち切り等、呼び出し側の裁量で使う）
 
     Returns:
-        タイムアウト前に検出できた場合 True
+        タイムアウト前に検出（または early_stop）できた場合 True
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
         if not is_wot_running():
+            return True
+        if early_stop is not None and early_stop():
             return True
         try:
             with open(WOT_LOG, "r", encoding="utf-8", errors="replace") as f:
@@ -233,6 +241,48 @@ def wait_for_replay_end(log_offset: int, timeout: int = 900) -> bool:
             pass
         time.sleep(3)
     return False
+
+
+def wait_for_log_marker(marker: str, launched_at: float, timeout: int = 90) -> bool:
+    """
+    launched_at 以降のタイムスタンプ行に marker が現れるまで待つ。
+
+    Returns:
+        検出できたら True、タイムアウトまたは WoT 消滅で False
+    """
+    deadline = time.time() + timeout
+    since = datetime.datetime.fromtimestamp(launched_at - 2)
+    while time.time() < deadline:
+        if not is_wot_running():
+            return False
+        try:
+            data = WOT_LOG.read_bytes()
+        except OSError:
+            data = b""
+        if find_marker_since(data, marker.encode(), since) is not None:
+            return True
+        time.sleep(1)
+    return False
+
+
+def send_right_arrow(presses: int = 2, interval_sec: float = 1.2) -> None:
+    """
+    右矢印キーを presses 回送る（リプレイの +10 秒シーク）。
+
+    フォアグラウンドウィンドウ宛のグローバルキーイベントなので、
+    呼び出し側は事前に WoT が前面であることを確認すること。
+    """
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    VK_RIGHT = 0x27
+    KEYEVENTF_KEYUP = 0x2
+    for i in range(presses):
+        user32.keybd_event(VK_RIGHT, 0, 0, 0)
+        time.sleep(0.05)
+        user32.keybd_event(VK_RIGHT, 0, KEYEVENTF_KEYUP, 0)
+        if i < presses - 1:
+            time.sleep(interval_sec)
 
 
 def launch_replay(replay_path: Path, wait: bool = False) -> tuple:

@@ -97,12 +97,16 @@ def generate_title(info: "BattleInfo") -> str:
 
     形式: 「タンク名, キル数, ダメージ数, 勲章（あれば）」（2026-07-17 方針）。
     LLM は使わないシンプルな固定テンプレート。
+    0 キルのときはキル数項目を省く（2026-07-20 方針）。
     """
     from src.achievements import notable_medals
 
     vehicle = _vehicle_display_name(info.player_vehicle)
     s = info.player_stats
-    parts = [vehicle, f"{s.kills}キル", f"{s.damage_dealt:,}ダメージ"]
+    parts = [vehicle]
+    if s.kills > 0:
+        parts.append(f"{s.kills}キル")
+    parts.append(f"{s.damage_dealt:,}ダメージ")
     parts += notable_medals(s.achievements)
     return ", ".join(parts)
 

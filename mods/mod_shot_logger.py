@@ -9,9 +9,12 @@ mod_shot_logger v2 - リプレイ再生中の射撃イベントを shot_events.j
   持っている)との差分で動画内タイムスタンプに変換できるため、
   ゲーム内時計やバトル開始検出に依存しない。
 - Vehicle.showShooting フック: 自車の射撃を検知（import 時に安全に張れる）
+- Vehicle.onHealthChanged フック: 自車の撃破 (death) を検知。
+  パイプライン側が死亡後の録画早期打ち切りに使う。
 - PlayerAvatar.onArenaPeriodChange フック: バトル開始 (period=3) の記録。
   personality 読み込み時点では Avatar モジュールが未初期化のため、
   BigWorld.callback で遅延リトライして張る。
+  ※実測では一度も発火していない（todo.md 参照）。death 検知には使わない。
 """
 
 import json
@@ -22,6 +25,7 @@ OUTPUT_PATH = 'C:/Games/World_of_Tanks_ASIA/shot_events.json'
 
 _events = []
 _arena_start_epoch = None
+_death_recorded = False
 
 
 def _write():
@@ -42,7 +46,7 @@ def _record(kind):
 import BigWorld  # noqa: E402
 
 _write()  # ロード確認用の初期書き出し
-BigWorld.logInfo(MOD_NAME, 'v2 loaded. output -> ' + OUTPUT_PATH, None)
+BigWorld.logInfo(MOD_NAME, 'v3 loaded. output -> ' + OUTPUT_PATH, None)
 
 
 # --------------------------------------------------------------------------
@@ -68,6 +72,38 @@ try:
     BigWorld.logInfo(MOD_NAME, 'Vehicle.showShooting hook installed', None)
 except Exception as ex:
     BigWorld.logWarning(MOD_NAME, 'Vehicle hook failed: ' + str(ex), None)
+
+
+# --------------------------------------------------------------------------
+# Vehicle.onHealthChanged: 自車の撃破検知
+# 第1引数が newHealth。0 以下になったら death を1回だけ記録する。
+# --------------------------------------------------------------------------
+
+try:
+    import Vehicle as _VehicleH
+
+    _orig_onHealthChanged = _VehicleH.Vehicle.onHealthChanged
+
+    def _hooked_onHealthChanged(self, *args, **kwargs):
+        global _death_recorded
+        try:
+            player = BigWorld.player()
+            pid = getattr(player, 'playerVehicleID', None)
+            if (not _death_recorded and pid is not None
+                    and getattr(self, 'id', None) == pid and args):
+                new_health = args[0]
+                if isinstance(new_health, (int, float)) and new_health <= 0:
+                    _death_recorded = True
+                    _record('death')
+                    BigWorld.logInfo(MOD_NAME, 'player death recorded', None)
+        except Exception as ex:
+            BigWorld.logWarning(MOD_NAME, 'health hook error: ' + str(ex), None)
+        return _orig_onHealthChanged(self, *args, **kwargs)
+
+    _VehicleH.Vehicle.onHealthChanged = _hooked_onHealthChanged
+    BigWorld.logInfo(MOD_NAME, 'Vehicle.onHealthChanged hook installed', None)
+except Exception as ex:
+    BigWorld.logWarning(MOD_NAME, 'health hook failed: ' + str(ex), None)
 
 
 # --------------------------------------------------------------------------

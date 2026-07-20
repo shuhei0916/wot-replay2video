@@ -38,6 +38,47 @@ class TestConvertEvents:
         events = convert_events(_data([10.0, 500.0]), REC_START, max_ts=400.0)
         assert [e.timestamp for e in events] == [10.0]
 
+    def test_death_events_not_converted_to_clips(self):
+        # death は録画打ち切り用のイベントで、ハイライトクリップにはしない
+        data = {"events": [
+            {"epoch": REC_START + 10.0, "type": "shot"},
+            {"epoch": REC_START + 200.0, "type": "death"},
+        ]}
+        events = convert_events(data, REC_START)
+        assert [e.event_type for e in events] == ["shot_mod"]
+
+
+# ---- death_epoch_from_events (pipeline) ----
+
+class TestDeathEpoch:
+    def _find(self, data):
+        from src.pipeline import death_epoch_from_events
+        return death_epoch_from_events(data)
+
+    def test_no_events(self):
+        assert self._find({}) is None
+        assert self._find({"events": []}) is None
+
+    def test_no_death(self):
+        assert self._find(_data([10.0, 20.0])) is None
+
+    def test_death_epoch_returned(self):
+        data = {"events": [
+            {"epoch": REC_START + 10.0, "type": "shot"},
+            {"epoch": REC_START + 200.0, "type": "death"},
+        ]}
+        assert self._find(data) == REC_START + 200.0
+
+    def test_first_death_wins(self):
+        data = {"events": [
+            {"epoch": 100.0, "type": "death"},
+            {"epoch": 200.0, "type": "death"},
+        ]}
+        assert self._find(data) == 100.0
+
+    def test_broken_epoch_returns_none(self):
+        assert self._find({"events": [{"type": "death", "epoch": "broken"}]}) is None
+
     def test_non_shot_types_ignored(self):
         data = {"events": [
             {"epoch": REC_START + 5, "type": "battle_start"},
