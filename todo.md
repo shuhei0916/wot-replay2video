@@ -27,18 +27,13 @@
       （幅 874px 中央寄せ、上端 y=300 ≒ 画面上 15.6〜19.5%）に lanczos 拡大で重畳。
       config は `shorts.hp_overlay`（enabled / src / dst）。適用は新規編集分から。
       **HUD スケールや録画解像度を変えたら src 矩形の再計測が必要**
-- [ ] **タイトルの車両名を公式名に修正**（2026-07-22 調査）: 現行の
-      `_vehicle_display_name()` は内部タグの文字列加工のみで、WG の車両改名・再編後は
-      公式名と食い違う（例: `WZ_122_2`→現状「WZ 122 2」だが公式は「122 TM」、
-      `O_I_100`→「O-Ni」、`M36_Slagger`→「M36 Jackson」）。マップ名
-      （`mapDisplayName`）は既にリプレイ内蔵の公式名で問題なし。
-      修正には `res/text/lc_messages/<nation>_vehicles.mo`
-      （japan/usa/china/sweden/germany/ussr/gb/france/italy/czech/poland/
-      multinational/igr の13ファイル）を使う。キーはタグの国名コード部分を
-      除いた全体（`tag.split("-",1)[-1]`）と完全一致。`tools/extract_achievements.py`
-      と同型のワンショット抽出ツールで `{tag: 名前}` の JSON を生成し、
-      クライアント更新時に再実行する運用。詳細は memory の
-      vehicle-map-name-source 参照
+- [x] **タイトルの車両名を公式名に修正**（2026-07-22 実装）:
+      `tools/extract_vehicle_names.py` が scripts.pkg の item_defs/vehicles と
+      各 nation の `_vehicles.mo` から `src/data/vehicle_names.json`（959件）を生成、
+      `src/vehicle_names.py` がランタイムで解決（未収録タグは従来の文字列加工に
+      フォールバック）。マップ名（`mapDisplayName`）は元々リプレイ内蔵の公式名で
+      対応不要だった。クライアント更新後、新規車両を反映するにはツール再実行が必要
+      （achievements と同じ運用）
 - [x] **0キル時はタイトルからキル数を省く**（2026-07-20 実装）:
       `generate_title()` で kills==0 のとき項目ごと省略。テスト追加
 - [x] **プレイヤー死亡時の録画早期打ち切り**（2026-07-20 実装・実機確認済み）:
