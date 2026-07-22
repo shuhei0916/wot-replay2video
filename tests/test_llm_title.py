@@ -42,7 +42,7 @@ KOLOBANOV = 55  # medalKolobanov の DB ID
 class TestBuildPrompt:
     def test_contains_battle_facts(self):
         prompt = build_prompt(_info())
-        assert "Type58" in prompt
+        assert "Type 58" in prompt  # 公式表示名（vehicle_names.json 由来）
         assert "氷河" in prompt
         assert "勝利" in prompt
 

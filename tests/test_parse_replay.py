@@ -178,7 +178,14 @@ class TestGenerateTitle:
         assert title == "T95, 2,416ダメージ, コロバノフ勲章"
 
     def test_fixture_replay(self, info):
-        assert generate_title(info) == "Type58, 1キル, 974ダメージ"
+        # "Type58"(crude derivation) ではなく公式表示名 "Type 58"（vehicle_names.json 由来）
+        assert generate_title(info) == "Type 58, 1キル, 974ダメージ"
+
+    def test_unknown_vehicle_tag_falls_back_to_crude_derivation(self):
+        # vehicle_names.json に無いタグ（新規車両等）は文字列加工にフォールバック
+        info = self._info([])
+        info.player_vehicle = "usa-A999_Brand_New_Tank"
+        assert generate_title(info) == "Brand New Tank, 2キル, 2,416ダメージ"
 
 
 # ---- 全車両リスト ----

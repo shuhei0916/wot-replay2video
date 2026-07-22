@@ -85,7 +85,20 @@ def read_replay_version(path: Path) -> str:
 
 
 def _vehicle_display_name(vehicle_tag: str) -> str:
-    """'japan-J28_O_I_100' → 'O I 100' のように表示名を抽出する。"""
+    """
+    'japan-J28_O_I_100' → 'O-Ni' のように公式表示名を返す。
+
+    まず src/data/vehicle_names.json（クライアントの .mo から抽出した公式名）を
+    引く。WG の車両改名・再編で内部タグと現行の公式名がズレることがあるため
+    （例: 'china-Ch43_WZ_122_2' の現行名は「122 TM」）、単純な文字列加工では
+    正しい名前にならない。未収録のタグ（新規車両等）は文字列加工にフォールバックする。
+    """
+    from src.vehicle_names import official_vehicle_name
+
+    official = official_vehicle_name(vehicle_tag)
+    if official:
+        return official
+
     after_nation = vehicle_tag.split("-", 1)[-1]  # 'J28_O_I_100'
     after_code = after_nation.split("_", 1)[-1]   # 'O_I_100'
     return after_code.replace("_", " ")
