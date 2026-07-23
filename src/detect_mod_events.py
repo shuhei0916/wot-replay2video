@@ -7,6 +7,13 @@ mod はイベントを壁時計時刻 (epoch) で記録する。録画開始 epo
 
 CV 検出（輝度・音声）と違い推測を含まない正確なイベントのため、
 存在する場合は最優先で使う。
+
+被弾 (hit_taken) イベントは2通りに使う:
+  (a) 撃ち合いボーナス: 自分の射撃直後に被弾していれば、一方的な射撃より
+      緊迫感がある「撃ち合い」とみなしその射撃イベントのスコアを加点する。
+  (b) 大きな一撃の単独ハイライト化: 残 HP を大きく削る一撃（マスト外し・
+      弾薬庫誘爆等）は、撃ち合いの有無に関わらずそれ自体をハイライト
+      候補にする。
 """
 
 import json
@@ -19,6 +26,12 @@ BASE_SCORE = 0.7
 AUDIO_BONUS_MAX = 0.3
 AUDIO_MATCH_WINDOW_SEC = 0.6
 
+# 被弾イベントの扱い
+HIT_TAKEN_MIN_PCT = 0.3     # 残HPのこの割合以上を一撃で失ったら単独ハイライト候補にする
+HIT_TAKEN_BASE_SCORE = 0.75
+DUEL_BONUS = 0.15           # 射撃直後に被弾していた（撃ち合い）場合の加点
+DUEL_WINDOW_SEC = 3.0       # 射撃からこの秒数以内の被弾を「撃ち合い」とみなす
+
 
 def convert_events(
     data: dict,
@@ -29,23 +42,49 @@ def convert_events(
     mod 出力 (shot_events.json の内容) を動画内タイムスタンプのイベントに変換する。
 
     Args:
-        data: {"events": [{"epoch": float, "type": str}, ...]}
+        data: {"events": [{"epoch": float, "type": str, ...}, ...]}
+              type "shot" は射撃、"hit_taken" は被弾（damage_pct を伴うことがある）
         rec_start_epoch: 録画開始の壁時計時刻
         max_ts: 動画の長さ（秒）。指定時は範囲外イベントを除外
     """
-    events = []
+    shots: list[HighlightEvent] = []
+    hits: list[tuple[float, float | None]] = []
+
     for e in data.get("events", []):
-        if e.get("type") != "shot":
+        et = e.get("type")
+        if et not in ("shot", "hit_taken"):
             continue
         ts = round(float(e["epoch"]) - rec_start_epoch, 2)
         if ts < 0:
             continue
         if max_ts is not None and ts > max_ts:
             continue
-        events.append(HighlightEvent(
-            timestamp=ts, event_type="shot_mod", score=BASE_SCORE,
-        ))
-    return sorted(events, key=lambda e: e.timestamp)
+        if et == "shot":
+            shots.append(HighlightEvent(timestamp=ts, event_type="shot_mod", score=BASE_SCORE))
+        else:
+            hits.append((ts, e.get("damage_pct")))
+
+    # (a) 撃ち合いボーナス: 射撃直後の被弾があればスコアを加点する
+    hit_timestamps = [ts for ts, _ in hits]
+    boosted_shots = []
+    for s in shots:
+        is_duel = any(0 <= ts - s.timestamp <= DUEL_WINDOW_SEC for ts in hit_timestamps)
+        if is_duel:
+            boosted_shots.append(HighlightEvent(
+                timestamp=s.timestamp, event_type=s.event_type,
+                score=round(min(s.score + DUEL_BONUS, 1.0), 3),
+            ))
+        else:
+            boosted_shots.append(s)
+
+    # (b) 残HPを大きく削る一撃は単独のハイライト候補にする
+    hit_events = [
+        HighlightEvent(timestamp=ts, event_type="hit_taken", score=HIT_TAKEN_BASE_SCORE)
+        for ts, pct in hits
+        if pct is not None and pct >= HIT_TAKEN_MIN_PCT
+    ]
+
+    return sorted(boosted_shots + hit_events, key=lambda e: e.timestamp)
 
 
 def score_with_audio(

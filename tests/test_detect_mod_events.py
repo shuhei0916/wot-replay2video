@@ -5,6 +5,10 @@ import json
 from src.detect_highlights import HighlightEvent
 from src.detect_mod_events import (
     BASE_SCORE,
+    DUEL_BONUS,
+    DUEL_WINDOW_SEC,
+    HIT_TAKEN_BASE_SCORE,
+    HIT_TAKEN_MIN_PCT,
     convert_events,
     load_mod_events,
     score_with_audio,
@@ -46,6 +50,64 @@ class TestConvertEvents:
         ]}
         events = convert_events(data, REC_START)
         assert [e.event_type for e in events] == ["shot_mod"]
+
+
+# ---- hit_taken: (a) 撃ち合いボーナス / (b) 大きな一撃の単独ハイライト化 ----
+
+class TestHitTaken:
+    def test_small_hit_not_standalone_clip(self):
+        # 閾値未満の被弾は単独ハイライトにしない
+        data = {"events": [
+            {"epoch": REC_START + 50.0, "type": "hit_taken", "damage_pct": HIT_TAKEN_MIN_PCT - 0.01},
+        ]}
+        events = convert_events(data, REC_START)
+        assert events == []
+
+    def test_big_hit_becomes_standalone_clip(self):
+        data = {"events": [
+            {"epoch": REC_START + 50.0, "type": "hit_taken", "damage_pct": HIT_TAKEN_MIN_PCT + 0.1},
+        ]}
+        events = convert_events(data, REC_START)
+        assert len(events) == 1
+        assert events[0].event_type == "hit_taken"
+        assert events[0].timestamp == 50.0
+        assert events[0].score == HIT_TAKEN_BASE_SCORE
+
+    def test_hit_taken_without_pct_not_standalone_clip(self):
+        # damage_pct が計算できなかった被弾（maxHealth 推定失敗等）は単独化しない
+        data = {"events": [
+            {"epoch": REC_START + 50.0, "type": "hit_taken", "damage": 300},
+        ]}
+        events = convert_events(data, REC_START)
+        assert events == []
+
+    def test_shot_followed_by_hit_gets_duel_bonus(self):
+        data = {"events": [
+            {"epoch": REC_START + 10.0, "type": "shot"},
+            {"epoch": REC_START + 10.0 + DUEL_WINDOW_SEC - 0.1, "type": "hit_taken", "damage_pct": 0.05},
+        ]}
+        events = convert_events(data, REC_START)
+        shot = [e for e in events if e.event_type == "shot_mod"][0]
+        assert shot.score == round(min(BASE_SCORE + DUEL_BONUS, 1.0), 3)
+
+    def test_shot_without_nearby_hit_keeps_base_score(self):
+        data = {"events": [
+            {"epoch": REC_START + 10.0, "type": "shot"},
+            {"epoch": REC_START + 10.0 + DUEL_WINDOW_SEC + 1.0, "type": "hit_taken", "damage_pct": 0.05},
+        ]}
+        events = convert_events(data, REC_START)
+        shot = [e for e in events if e.event_type == "shot_mod"][0]
+        assert shot.score == BASE_SCORE
+
+    def test_hit_before_shot_is_not_a_duel_bonus(self):
+        # 被弾は射撃の「直後」のみ撃ち合いとみなす（先に食らった被弾は無関係）
+        data = {"events": [
+            {"epoch": REC_START + 10.0, "type": "hit_taken", "damage_pct": 0.05},
+            {"epoch": REC_START + 10.0 + DUEL_WINDOW_SEC + 5.0, "type": "shot"},
+        ]}
+        events = convert_events(data, REC_START)
+        shot = [e for e in events if e.event_type == "shot_mod"][0]
+        assert shot.score == BASE_SCORE
 
 
 # ---- death_epoch_from_events (pipeline) ----
