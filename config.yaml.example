@@ -53,3 +53,8 @@ youtube:
     - "WoT"
     - "Shorts"
     - "戦車"
+  longform:                  # 未編集フル録画をロング動画としてアップロード（upload_longform_backlog.py）
+    enabled: true
+    privacy: "unlisted"       # unlisted / public / private
+    max_per_run: 3
+    title_prefix: "【ノーカット】"

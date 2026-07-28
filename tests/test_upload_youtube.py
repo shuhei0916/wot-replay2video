@@ -10,8 +10,10 @@ from pathlib import Path
 from src.upload_youtube import (
     extract_tags_from_title,
     build_video_metadata,
+    get_video_id,
     is_uploaded,
     mark_as_uploaded,
+    record_video_id,
     replay_stem_from_video,
     should_retry,
 )
@@ -121,6 +123,14 @@ class TestBuildVideoMetadata:
         meta = build_video_metadata("t", privacy="public")
         assert meta["status"] == {"privacyStatus": "public"}
 
+    def test_description_included_when_given(self):
+        meta = build_video_metadata("t", privacy="public", description="説明文")
+        assert meta["snippet"]["description"] == "説明文"
+
+    def test_description_omitted_when_not_given(self):
+        meta = build_video_metadata("t", privacy="public")
+        assert "description" not in meta["snippet"]
+
 
 # ---- is_uploaded / mark_as_uploaded ----
 
@@ -159,6 +169,37 @@ class TestUploadLog:
         mark_as_uploaded("video_a", log)
         entries = json.loads(log.read_text(encoding="utf-8"))
         assert entries.count("video_a") == 1
+
+
+# ---- get_video_id / record_video_id ----
+
+class TestVideoIdLog:
+    def test_get_video_id_none_when_log_missing(self, tmp_path):
+        log = tmp_path / "video_ids.json"
+        assert get_video_id("video_stem", log) is None
+
+    def test_get_video_id_none_when_not_in_log(self, tmp_path):
+        log = tmp_path / "video_ids.json"
+        log.write_text(json.dumps({"other_video": "abc"}), encoding="utf-8")
+        assert get_video_id("video_stem", log) is None
+
+    def test_record_video_id_creates_log(self, tmp_path):
+        log = tmp_path / "video_ids.json"
+        record_video_id("video_stem", "xyz123", log)
+        assert get_video_id("video_stem", log) == "xyz123"
+
+    def test_record_video_id_preserves_other_entries(self, tmp_path):
+        log = tmp_path / "video_ids.json"
+        record_video_id("video_a", "id_a", log)
+        record_video_id("video_b", "id_b", log)
+        assert get_video_id("video_a", log) == "id_a"
+        assert get_video_id("video_b", log) == "id_b"
+
+    def test_record_video_id_overwrites_same_stem(self, tmp_path):
+        log = tmp_path / "video_ids.json"
+        record_video_id("video_stem", "old_id", log)
+        record_video_id("video_stem", "new_id", log)
+        assert get_video_id("video_stem", log) == "new_id"
 
 
 # ---- should_retry ----
