@@ -2,32 +2,52 @@
 録画前プリフライトチェック。
 
 バッチ録画の前に以下を検査し、一晩分の録画を無駄にする事故を防ぐ:
-  1. OBS が起動しているか（起動していなければ自動起動）
-  2. デスクトップ音声ソースの設定（ミュート・音量・録画トラック割り当て）
-  3. 画面キャプチャソースの存在
-  4. テスト録画: 実際に音を鳴らして数秒録画し、音声が記録されるか検証
+  1. ディスク空き容量
+  2. OBS が起動しているか（起動していなければ自動起動）
+  3. デスクトップ音声ソースの設定（ミュート・音量・録画トラック割り当て）
+  4. 画面キャプチャソースの存在
+  5. テスト録画: 実際に音を鳴らして数秒録画し、音声が記録されるか検証
 
 背景: 2026-06/21〜07/02 の録画が Windows ミキサーの WoT 個別ミュートで
-全て無音になり、一週間分の録画が無駄になった。
+全て無音になり、一週間分の録画が無駄になった。2026-07-27 には output/
+のフル録画肥大化でディスクが満杯になり、バッチ後半が連鎖的に失敗した。
 """
 
+import shutil
 import subprocess
 import time
 from pathlib import Path
 
-from src.config import find_ffmpeg, find_ffprobe, load_config, wot_client_version, wot_dir
+from src.config import OUTPUT_DIR, find_ffmpeg, find_ffprobe, load_config, wot_client_version, wot_dir
 from src.recorder import connect as obs_connect
 
 _obs_cfg = load_config().get("obs", {})
+_preflight_cfg = load_config().get("preflight", {})
 
 OBS_EXE = Path(_obs_cfg.get(
     "exe", r"C:\Program Files\obs-studio\bin\64bit\obs64.exe"
 ))
 TEST_WAV = r"C:\Windows\Media\Alarm01.wav"
 
+# 2026-07-27: output/ にフル録画(未編集)が523GB溜まってC:ドライブを満杯にし、
+# 53本目でリムックス失敗、以降47本連続でリプレイ開始検出タイムアウトという
+# 連鎖障害が起きた。同じ事故を録画開始前に検知するための下限値。
+MIN_FREE_GB = _preflight_cfg.get("min_free_gb", 50)
+
 # 無音判定: 正常録音は ~130-190kbps、無音は ~2.3kbps
 MIN_AUDIO_BITRATE = 10_000
 MIN_TEST_MAX_VOLUME_DB = -40.0
+
+
+def check_disk_space() -> list[str]:
+    """output/ があるドライブの空き容量を検査する（不足していれば問題を返す）。"""
+    free_gb = shutil.disk_usage(OUTPUT_DIR).free / 1e9
+    if free_gb < MIN_FREE_GB:
+        return [
+            f"ディスク空き容量が不足しています ({free_gb:.1f} GB < {MIN_FREE_GB} GB)。"
+            "output/ 内の未編集フル録画を削除するか退避してください"
+        ]
+    return []
 
 
 def ensure_obs_running():
@@ -204,6 +224,12 @@ def run_preflight() -> bool:
     問題があれば内容を表示して False を返す。
     """
     print("=== 録画プリフライトチェック ===")
+    disk_problems = check_disk_space()
+    if disk_problems:
+        for p in disk_problems:
+            print(f"[NG] {p}")
+        return False
+
     check_mod_deployed()
     try:
         client = ensure_obs_running()

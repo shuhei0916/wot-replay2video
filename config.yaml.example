@@ -17,6 +17,9 @@ batch:
   min_damage: 1500
   min_mastery: 3             # 3 = 1級, 4 = M章
 
+preflight:
+  min_free_gb: 50            # output/ のドライブの空き容量がこれ未満ならバッチを開始しない
+
 recording:
   intro_skip:              # 開幕カウントダウンを右矢印キー(+10秒シーク)で飛ばす
     enabled: true

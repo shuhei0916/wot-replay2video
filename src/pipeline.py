@@ -86,6 +86,7 @@ def _remux_faststart(src: Path) -> Path:
         if attempt < 2:
             print(f"リムックス失敗（{attempt + 1}/3）。5秒後にリトライします...")
             time.sleep(5)
+    tmp.unlink(missing_ok=True)
     raise RuntimeError(
         f"リムックスに失敗しました: {src}\n{r.stderr.decode(errors='replace')[-500:]}"
     )
