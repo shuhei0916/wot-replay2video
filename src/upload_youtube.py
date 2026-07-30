@@ -130,7 +130,13 @@ def replay_stem_from_video(video_stem: str) -> str:
 UPLOAD_LOG = Path(__file__).parent.parent / "output" / "uploaded.json"
 # video_stem → video_id の共通台帳（Shorts・ロング動画どちらのアップロードでも記録される）
 VIDEO_ID_LOG = Path(__file__).parent.parent / "output" / "video_ids.json"
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+# youtube.upload だけでは videos.list/videos.update（説明欄バックフィルに必要）が
+# insufficientPermissions になることが実機確認で判明（2026-07-30）。videos.insert
+# は変わらず youtube.upload でも通るが、動画情報の取得・更新には広いスコープが要る
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube",
+]
 
 
 def _get_credentials(secrets_path: Path, token_path: Path):
