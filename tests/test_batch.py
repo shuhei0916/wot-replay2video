@@ -4,8 +4,9 @@ import shutil
 import struct
 from pathlib import Path
 
+import src.batch as batch
 from src.batch import _has_result, _select_worthy, meets_criteria
-from src.parse_replay import PlayerStats
+from src.parse_replay import BattleInfo, PlayerStats
 
 FIXTURE_REPLAY = Path(__file__).parent / "fixtures" / \
     "20260604_1729_china-Ch20_Type58_115_sweden.wotreplay"
@@ -17,6 +18,16 @@ def _stats(kills=0, damage=0, mastery=0) -> PlayerStats:
         survived=True, hp_remaining=100, spotted=0,
         damage_assisted_radio=0, xp=500, credits=10000,
         mark_of_mastery=mastery,
+    )
+
+
+def _info(battle_type=1, kills=0, damage=0, mastery=0) -> BattleInfo:
+    return BattleInfo(
+        player_name="p", player_vehicle="v", map_name="m", game_version="1",
+        region="ASIA", battle_time=None, duration_seconds=600,
+        winner_team=1, player_team=1,
+        player_stats=_stats(kills=kills, damage=damage, mastery=mastery),
+        battle_type=battle_type,
     )
 
 
@@ -83,3 +94,42 @@ class TestSelectWorthy:
         broken = tmp_path / "broken.wotreplay"
         broken.write_bytes(b"\x12\x32\x34\x11" + struct.pack("<I", 2) + b"garbage")
         assert _select_worthy([broken], min_kills=1, min_damage=1, min_mastery=1) == []
+
+
+class TestSelectWorthyRandomBattlesOnly:
+    """ランダム戦以外（battle_type != 1）は成績に関わらず除外される。"""
+
+    def _fake_path(self, tmp_path, name="story.wotreplay"):
+        p = tmp_path / name
+        p.write_bytes(b"")
+        return p
+
+    def test_non_random_excluded_even_with_high_stats(self, tmp_path, monkeypatch):
+        # 単純な閾値強化では防げない「非ランダム戦の“通常の”見せ場試合」を模擬
+        p = self._fake_path(tmp_path)
+        monkeypatch.setattr(
+            batch, "parse_replay",
+            lambda path: _info(battle_type=104, kills=10, damage=5000, mastery=4),
+        )
+        assert _select_worthy([p]) == []
+
+    def test_non_random_included_when_toggle_disabled(self, tmp_path, monkeypatch):
+        p = self._fake_path(tmp_path)
+        monkeypatch.setattr(
+            batch, "parse_replay",
+            lambda path: _info(battle_type=104, kills=10, damage=5000, mastery=4),
+        )
+        monkeypatch.setattr(
+            batch, "load_config",
+            lambda: {"batch": {"random_battles_only": False}},
+        )
+        assert _select_worthy([p]) == [p]
+
+    def test_random_battle_still_uses_stat_filter(self, tmp_path, monkeypatch):
+        # battle_type=1（ランダム戦）は従来通り成績フィルタが効く（回帰なし）
+        p = self._fake_path(tmp_path)
+        monkeypatch.setattr(
+            batch, "parse_replay",
+            lambda path: _info(battle_type=1, kills=0, damage=0, mastery=0),
+        )
+        assert _select_worthy([p]) == []

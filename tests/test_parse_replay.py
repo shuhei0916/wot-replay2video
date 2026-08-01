@@ -73,6 +73,11 @@ class TestBattleMetadata:
         import datetime
         assert info.battle_time == datetime.datetime(2026, 6, 4, 17, 29, 1)
 
+    def test_is_random_battle(self, info):
+        # このフィクスチャは実際の battleType=1（ランダム戦）
+        assert info.battle_type == 1
+        assert info.is_random_battle is True
+
 
 # ---- バトル結果 ----
 

@@ -15,6 +15,8 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
+RANDOM_BATTLE_TYPE = 1  # Block 1 の battleType。ランダム戦以外（Story Mode/Epic Random等）は別の値になる
+
 
 @dataclass
 class PlayerStats:
@@ -48,11 +50,16 @@ class BattleInfo:
     winner_team: int
     player_team: int
     player_stats: PlayerStats
+    battle_type: int = RANDOM_BATTLE_TYPE
     all_vehicles: list[dict] = field(default_factory=list)
 
     @property
     def player_won(self) -> bool:
         return self.player_team == self.winner_team
+
+    @property
+    def is_random_battle(self) -> bool:
+        return self.battle_type == RANDOM_BATTLE_TYPE
 
 
 def _read_blocks(data: bytes) -> tuple[dict, list]:
@@ -197,5 +204,6 @@ def parse_replay(path: Path) -> BattleInfo:
         winner_team=common["winnerTeam"],
         player_team=player_team,
         player_stats=player_stats,
+        battle_type=b1.get("battleType", RANDOM_BATTLE_TYPE),
         all_vehicles=all_vehicles,
     )

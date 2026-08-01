@@ -61,14 +61,19 @@ def _select_worthy(
         min_damage = cfg.get("min_damage", DEFAULT_MIN_DAMAGE)
     if min_mastery is None:
         min_mastery = cfg.get("min_mastery", DEFAULT_MIN_MASTERY)
+    random_only = cfg.get("random_battles_only", True)
 
     kept = []
     for p in paths:
         try:
-            stats = parse_replay(p).player_stats
+            info = parse_replay(p)
         except Exception:
             print(f"  除外（戦闘結果を解析できません）: {p.name}")
             continue
+        if random_only and not info.is_random_battle:
+            print(f"  除外（ランダム戦以外: battleType={info.battle_type}）: {p.name}")
+            continue
+        stats = info.player_stats
         if meets_criteria(stats, min_kills, min_damage, min_mastery):
             kept.append(p)
         else:
