@@ -16,6 +16,8 @@ batch:
   min_kills: 2               # 以下のいずれかを満たせば録画する（OR 条件）
   min_damage: 1500
   min_mastery: 3             # 3 = 1級, 4 = M章
+  random_battles_only: true  # ランダム戦以外（Story Mode/Epic Random等、battleType!=1）は
+                             # 成績に関わらず動画化対象から除外する
 
 preflight:
   min_free_gb: 50            # output/ のドライブの空き容量がこれ未満ならバッチを開始しない
@@ -35,6 +37,8 @@ shorts:
     enabled: true
     src: { x: 3, y: 873, w: 224, h: 18 }   # 1920x1080 元フレーム内のバー矩形（HUDスケール変更時は要再計測）
     dst: { w: 874, y: 300 }                # 出力1080x1920での表示幅と上端Y（中央寄せ、高さはアスペクト比維持）
+  dynamic_clip_length:       # 射撃間隔（reload interval）でクリップ長を可変にする
+    enabled: true            # false でクリップ長固定（CLIP_PRE_SEC/CLIP_POST_SEC）に戻せる
 
 # ffmpeg:
 #   path: "C:\\ffmpeg\\bin\\ffmpeg.exe"   # PATH に無い場合のみ指定
