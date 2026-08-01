@@ -20,6 +20,8 @@ class HighlightEvent:
     timestamp: float   # 動画内の秒数
     event_type: str    # "shot_flash" など
     score: float       # 0.0〜1.0 （強度の正規化値）
+    pre_sec: float | None = None   # クリップのイベント前余白。None なら呼び出し側の既定値
+    post_sec: float | None = None  # クリップのイベント後余白。None なら呼び出し側の既定値
 
 
 # 射撃フラッシュ検出用 ROI（元解像度に対する比率）

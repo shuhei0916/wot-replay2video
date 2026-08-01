@@ -262,7 +262,10 @@ def _detect_events(recording_path: Path):
         fuse_events = None
 
     from src.detect_mod_events import load_mod_events, score_with_audio
-    mod_events = load_mod_events(recording_path)
+    dynamic_pacing = (
+        load_config().get("shorts", {}).get("dynamic_clip_length", {}).get("enabled", True)
+    )
+    mod_events = load_mod_events(recording_path, dynamic_pacing=dynamic_pacing)
     if mod_events:
         print(f"  mod イベント {len(mod_events)} 件を使用（音声ピーク {len(audio)} 件でスコア付け）")
         return score_with_audio(mod_events, audio)

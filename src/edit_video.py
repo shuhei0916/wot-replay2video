@@ -29,20 +29,35 @@ def _find_ffmpeg() -> str:
     return ffmpeg
 
 
+def _effective_pre(event: HighlightEvent) -> float:
+    """イベントのクリップ前余白。可変長指定が無ければ既定値を使う。"""
+    return event.pre_sec if event.pre_sec is not None else CLIP_PRE_SEC
+
+
+def _effective_post(event: HighlightEvent) -> float:
+    """イベントのクリップ後余白。可変長指定が無ければ既定値を使う。"""
+    return event.post_sec if event.post_sec is not None else CLIP_POST_SEC
+
+
+def _effective_duration(event: HighlightEvent) -> float:
+    return _effective_pre(event) + _effective_post(event)
+
+
 def _dedup_clips(events: list[HighlightEvent]) -> list[HighlightEvent]:
     """
     スコア降順で選択しながら、時間が重複するイベントを除去する。
 
     高スコアのイベントを優先し、そのクリップ範囲と重なる低スコアの
-    イベントをスキップする。
+    イベントをスキップする。クリップ範囲は各イベント自身の pre_sec/post_sec
+    （可変長クリップ）を使う。
     """
     by_score = sorted(events, key=lambda e: e.score, reverse=True)
     kept: list[HighlightEvent] = []
     for e in by_score:
-        e_start = e.timestamp - CLIP_PRE_SEC
-        e_end   = e.timestamp + CLIP_POST_SEC
+        e_start = e.timestamp - _effective_pre(e)
+        e_end   = e.timestamp + _effective_post(e)
         overlap = any(
-            not (e_end <= (k.timestamp - CLIP_PRE_SEC) or e_start >= (k.timestamp + CLIP_POST_SEC))
+            not (e_end <= (k.timestamp - _effective_pre(k)) or e_start >= (k.timestamp + _effective_post(k)))
             for k in kept
         )
         if not overlap:
@@ -57,14 +72,22 @@ def select_clips(
     """
     Shorts に収めるイベントを選択する。
 
-    重複除去後、スコア降順で合計時間が max_total_sec に収まる本数だけ
-    選び、タイムスタンプ順に並べて返す。
+    重複除去後、スコア降順に舐めながら、そのイベントの実尺（可変長）を
+    足しても合計が max_total_sec を超えない限り採用する（超えるものは
+    スキップして次を試す貪欲法）。採用したものをタイムスタンプ順に並べて返す。
     """
-    clip_duration = CLIP_PRE_SEC + CLIP_POST_SEC
-    max_clips = max(int(max_total_sec // clip_duration), 1)
     deduped = _dedup_clips(events)
     by_score = sorted(deduped, key=lambda e: e.score, reverse=True)
-    selected = by_score[:max_clips]
+    selected: list[HighlightEvent] = []
+    total = 0.0
+    for e in by_score:
+        duration = _effective_duration(e)
+        if total + duration <= max_total_sec:
+            selected.append(e)
+            total += duration
+    if not selected and by_score:
+        # 全イベントが単体で予算オーバーでも、最低1本は残す
+        selected.append(by_score[0])
     return sorted(selected, key=lambda e: e.timestamp)
 
 
@@ -184,8 +207,6 @@ def make_shorts(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    clip_duration = CLIP_PRE_SEC + CLIP_POST_SEC
-
     # 重複除去 + スコア上位選択（合計 SHORTS_MAX_SEC 以内）→ 時系列順
     selected = select_clips(events)
 
@@ -200,9 +221,10 @@ def make_shorts(
     hp_overlay = hp_overlay_config()
 
     for i, event in enumerate(selected):
-        start = event.timestamp - CLIP_PRE_SEC
+        start = event.timestamp - _effective_pre(event)
+        duration = _effective_duration(event)
         clip_out = clips_dir / f"clip_{i:03d}_{event.timestamp:.1f}s.mp4"
-        clip_and_crop(video_path, start, clip_duration, clip_out, hp_overlay=hp_overlay)
+        clip_and_crop(video_path, start, duration, clip_out, hp_overlay=hp_overlay)
         clip_paths.append(clip_out)
         print(f"  clip {i+1}/{len(selected)}: {event.timestamp:.1f}s (score={event.score:.3f}) → {clip_out.name}")
 
