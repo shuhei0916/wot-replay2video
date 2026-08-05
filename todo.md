@@ -230,7 +230,13 @@ Shorts 1,000万再生。RPM も低い）。優先順位案:
        右パネル「関連動画」→候補選択→保存、`longform_uploaded.json`にペア情報あり）
        も同時に保留。コード（`src/longform.py`, `upload_longform_backlog.py`）は
        残してあるので、チャンネルが育って「面を広げる」段階になったら
-       `enabled: true`に戻すだけで再開できる
+       `enabled: true`に戻すだけで再開できる。
+       **2026-08-05実装**: `youtube.longform.enabled: false`の間は生録画を
+       自動削除するよう変更（`src/pipeline.py`の`_delete_raw_if_longform_disabled`。
+       ハイライト無しなら即削除、Shorts生成時はアップロード成功
+       （video_id記録）を確認してから削除）。再開時に`enabled: true`へ戻せば、
+       この自動削除は働かなくなり生録画は保持される（ロング動画側が
+       アップロード後に削除する既存の仕組みに委ねられる）
 8. [ ] **Webから好成績のリプレイファイルを自動取得して動画化**（2026-08-04着想）:
        自分のプレイ以外に、Web上で公開されている好成績のリプレイファイルを自動収集し、
        既存パイプラインにそのまま投入する。現行パイプラインは「`.wotreplay`ファイルを

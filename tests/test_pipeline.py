@@ -5,6 +5,57 @@ from types import SimpleNamespace
 import pytest
 
 import src.pipeline as pipeline
+import src.upload_youtube as upload_youtube
+from src.upload_youtube import record_video_id
+
+
+class TestDeleteRawIfLongformDisabled:
+    def test_deletes_when_longform_disabled_and_shorts_uploaded(self, tmp_path, monkeypatch):
+        video_id_log = tmp_path / "video_ids.json"
+        monkeypatch.setattr(upload_youtube, "VIDEO_ID_LOG", video_id_log)
+        record_video_id("replay_shorts", "abc123", video_id_log)
+
+        recording = tmp_path / "replay.mp4"
+        recording.write_bytes(b"data")
+        monkeypatch.setattr(
+            pipeline, "load_config",
+            lambda: {"youtube": {"longform": {"enabled": False}}},
+        )
+
+        pipeline._delete_raw_if_longform_disabled(recording, "replay_shorts")
+
+        assert not recording.exists()
+
+    def test_keeps_when_longform_enabled(self, tmp_path, monkeypatch):
+        video_id_log = tmp_path / "video_ids.json"
+        monkeypatch.setattr(upload_youtube, "VIDEO_ID_LOG", video_id_log)
+        record_video_id("replay_shorts", "abc123", video_id_log)
+
+        recording = tmp_path / "replay.mp4"
+        recording.write_bytes(b"data")
+        monkeypatch.setattr(
+            pipeline, "load_config",
+            lambda: {"youtube": {"longform": {"enabled": True}}},
+        )
+
+        pipeline._delete_raw_if_longform_disabled(recording, "replay_shorts")
+
+        assert recording.exists()
+
+    def test_keeps_when_shorts_upload_not_confirmed(self, tmp_path, monkeypatch):
+        video_id_log = tmp_path / "video_ids.json"  # 何も記録しない = Shortsアップロード未確認
+        monkeypatch.setattr(upload_youtube, "VIDEO_ID_LOG", video_id_log)
+
+        recording = tmp_path / "replay.mp4"
+        recording.write_bytes(b"data")
+        monkeypatch.setattr(
+            pipeline, "load_config",
+            lambda: {"youtube": {"longform": {"enabled": False}}},
+        )
+
+        pipeline._delete_raw_if_longform_disabled(recording, "replay_shorts")
+
+        assert recording.exists()
 
 
 class TestRemuxFaststart:

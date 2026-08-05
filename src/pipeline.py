@@ -348,9 +348,28 @@ def upload_shorts(
         print(f"警告: YouTube アップロードに失敗しました（動画は保持）: {e}")
 
 
+def _delete_raw_if_longform_disabled(recording: Path, shorts_stem: str) -> None:
+    """
+    ロング動画パイプラインが無効（既定）なら、Shortsアップロードが実際に成功した
+    ことを確認したうえで生録画を削除する。有効な場合は、ロング動画アップロード側が
+    アップロード後に削除する想定のため、ここでは削除しない
+    （[[longform-pipeline-verified]] 参照。再開時は youtube.longform.enabled を
+    true に戻すだけで、生録画削除は再びロング動画側に委ねられる）。
+    """
+    if load_config().get("youtube", {}).get("longform", {}).get("enabled", True):
+        return
+    from src.upload_youtube import VIDEO_ID_LOG, get_video_id
+    if get_video_id(shorts_stem, VIDEO_ID_LOG) is None:
+        return  # Shorts アップロードが未確認（失敗/クォータ切れ等）なら残す
+    recording.unlink(missing_ok=True)
+
+
 def process_replay(replay_path: Path) -> Path:
     """
     1本のリプレイを録画 → Shorts 生成 → アップロードまで処理する。
+
+    ロング動画パイプラインが無効なら、用済みになった生録画は自動削除する
+    （ハイライトが無ければ即削除、Shorts生成時はアップロード成功を確認してから削除）。
 
     Returns:
         Shorts 動画のパス（ハイライトなしの場合は録画ファイルのパス）
@@ -361,6 +380,7 @@ def process_replay(replay_path: Path) -> Path:
     shorts_path = make_highlight_shorts(recording)
     if shorts_path is None:
         print(f"ハイライトが見つかりませんでした。録画のみ保存: {recording}")
+        recording.unlink(missing_ok=True)
         return recording
 
     titles = build_titles(replay_path)
@@ -374,6 +394,7 @@ def process_replay(replay_path: Path) -> Path:
 
     upload_shorts(shorts_path, title, localizations=titles)
     print(f"完了: {shorts_path}")
+    _delete_raw_if_longform_disabled(recording, shorts_path.stem)
     return shorts_path
 
 
