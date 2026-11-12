@@ -133,3 +133,15 @@ class TestSelectWorthyRandomBattlesOnly:
             lambda path: _info(battle_type=1, kills=0, damage=0, mastery=0),
         )
         assert _select_worthy([p]) == []
+
+
+class TestStopRequested:
+    def test_no_file(self, tmp_path):
+        from src.batch import stop_requested
+        assert stop_requested(tmp_path / "STOP_BATCH") is False
+
+    def test_file_present(self, tmp_path):
+        from src.batch import stop_requested
+        f = tmp_path / "STOP_BATCH"
+        f.touch()
+        assert stop_requested(f) is True

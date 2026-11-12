@@ -17,6 +17,12 @@ from src.parse_replay import PlayerStats, parse_replay
 from src.pipeline import RecordingEnvironmentError, SilentRecordingError, process_replay
 
 DONE_LOG = OUTPUT_DIR / "processed.json"
+# このファイルがあると、処理中の1本が終わった時点でバッチを止める（scripts/stop_batch.bat が作る）
+STOP_FILE = OUTPUT_DIR / "STOP_BATCH"
+
+
+def stop_requested(stop_file: Path | None = None) -> bool:
+    return (stop_file or STOP_FILE).exists()
 
 # 録画価値フィルタのデフォルト基準（いずれかを満たせば録画する）
 DEFAULT_MIN_KILLS = 2
@@ -129,6 +135,10 @@ def process_replays(replay_paths: list[Path], preflight: bool = True) -> None:
 
     print(f"処理対象: {len(targets)} 本")
     for i, replay in enumerate(targets, 1):
+        if stop_requested():
+            STOP_FILE.unlink(missing_ok=True)
+            print(f"\n停止要求を検出したため、{i - 1} 本処理した時点でバッチを終了します。")
+            break
         print(f"\n{'='*60}")
         print(f"[{i}/{len(targets)}] {replay.name}")
         print(f"{'='*60}")

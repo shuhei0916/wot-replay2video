@@ -50,7 +50,40 @@ def collect_replays(replay_dir: Path | None = None) -> list[Path]:
     return matched
 
 
+class _Tee:
+    """標準出力をコンソールとログファイルの両方に書く（リモートから進捗を確認するため）。"""
+
+    def __init__(self, stream, log_file):
+        self._stream = stream
+        self._log = log_file
+
+    def write(self, s):
+        self._stream.write(s)
+        self._log.write(s)
+        self._log.flush()
+
+    def flush(self):
+        self._stream.flush()
+        self._log.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def _start_logging() -> Path:
+    import datetime
+    from src.config import OUTPUT_DIR
+    log_dir = OUTPUT_DIR / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    path = log_dir / f"batch_{datetime.datetime.now():%Y%m%d_%H%M%S}.log"
+    f = open(path, "w", encoding="utf-8", errors="replace")
+    sys.stdout = _Tee(sys.stdout, f)
+    sys.stderr = _Tee(sys.stderr, f)
+    return path
+
+
 if __name__ == "__main__":
+    print(f"ログ: {_start_logging()}")
     replays = collect_replays()
     if not replays:
         print(f"対象リプレイがありません: {replays_dir()}")

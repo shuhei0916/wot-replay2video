@@ -17,7 +17,9 @@ YouTube Shorts 動画（9:16, 最大60秒）
 ## 環境
 
 - **Windows ネイティブ**（録画・再生・開発すべて同一 PC）。実際のパス類は `config.yaml` が正
-- **WoT クライアント**: `C:\Games\World_of_Tanks_ASIA`
+- **2台運用**: 横浜デスクトップ（WoT: `X:\Games\World_of_Tanks_ASIA`、メインの録画機）と佐野ラップトップ（WoT: `C:\Games\World_of_Tanks_ASIA`）。`output/` の状態ファイルは PC ごとに別
+- **運用**: 録画バッチは出かける前に `scripts/start_batch.bat` で手動開始、`stop_batch.bat` で1本処理後に停止。アップロードはタスクスケジューラで毎日（`scripts/register_tasks.ps1`）
+- **mod 配置**: クライアント更新・別 PC では `python mods/deploy_mod.py` を再実行（WoT パスは config から埋め込み）
 - **処理対象リプレイ**: Google Drive 同期フォルダ（`config.yaml` の `replays.dir`）
 - **言語**: Python 3
 
