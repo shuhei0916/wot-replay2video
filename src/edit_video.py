@@ -174,7 +174,8 @@ def build_filter_args(
 AUDIO_ARGS = ["-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "160k"]
 VIDEO_ARGS = ["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p", "-r", "60"]
 
-_FONT = "C\\:/Windows/Fonts/meiryob.ttc"
+# 早送りマーク ▶▶ を確実に描ける記号フォント
+_SYMBOL_FONT = "C\\:/Windows/Fonts/seguisym.ttf"
 
 
 def build_travel_filter(
@@ -186,12 +187,12 @@ def build_travel_filter(
 ) -> str:
     """
     早送りつなぎ用のフィルタ。ぼかした戦闘映像を背景に、ミニマップを大写しにして
-    「早送り ×N」の表示を付ける。
+    早送りマーク（▶▶）を付ける。海外の視聴者も想定し、文字は入れない。
     """
     s = minimap_src
     map_h = round(s["h"] * map_width / s["w"])
     map_y = (SHORTS_HEIGHT - map_h) // 2 - 80
-    label = f"早送り ×{round(speed)}"
+    label = "▶▶"  # ▶▶
     return (
         f"[0:v]setpts=PTS/{speed},split=2[v][mm];"
         f"[v]{_center_crop_filter(src_width, src_height)},boxblur=20:2,"
@@ -199,7 +200,7 @@ def build_travel_filter(
         f"[mm]crop={s['w']}:{s['h']}:{s['x']}:{s['y']},"
         f"scale={map_width}:{map_h}:flags=lanczos[map];"
         f"[bg][map]overlay=(W-w)/2:{map_y},"
-        f"drawtext=fontfile='{_FONT}':text='{label}':fontsize=72:fontcolor=white:"
+        f"drawtext=fontfile='{_SYMBOL_FONT}':text='{label}':fontsize=96:fontcolor=white:"
         f"borderw=4:bordercolor=black:x=(w-text_w)/2:y={map_y + map_h + 40}[out]"
     )
 

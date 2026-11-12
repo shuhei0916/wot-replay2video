@@ -193,6 +193,7 @@ class TestTravelFilter:
         from src.edit_video import build_travel_filter
         graph = build_travel_filter(1920, 1080, MINIMAP["src"], 8.0)
         assert graph.startswith("[0:v]setpts=PTS/8.0,")
-        assert "早送り ×8" in graph
+        assert "▶▶" in graph  # ▶▶ のみ（文字は入れない）
+        assert "早送り" not in graph
         assert "crop=520:520:1400:560" in graph
         assert graph.endswith("[out]")
