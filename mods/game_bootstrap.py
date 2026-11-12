@@ -14,9 +14,9 @@ import marshal
 import traceback
 import zipfile
 
-_PKG_PATH = 'C:/Games/World_of_Tanks_ASIA/res/packages/scripts.pkg'
+_PKG_PATH = '__WOT_DIR__/res/packages/scripts.pkg'
 _ORIG_PYC = 'scripts/client/game.pyc'
-_ERR_PATH = 'C:/Games/World_of_Tanks_ASIA/mod_bootstrap_error.txt'
+_ERR_PATH = '__WOT_DIR__/mod_bootstrap_error.txt'
 
 
 def _log_error(stage):

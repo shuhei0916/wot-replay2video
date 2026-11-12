@@ -18,7 +18,21 @@ from src.config import wot_dir
 
 WOT_DIR = wot_dir()
 WOT_EXE = WOT_DIR / "WorldOfTanks.exe"
-WOT_LOG = WOT_DIR / "python.log"
+
+def _pick_wot_log(wot: Path) -> Path:
+    """
+    監視するクライアントログを選ぶ。
+
+    v2.3 までは python.log、v2.4 以降は game.log に出力される（python.log は
+    残骸として残るが更新されない）。両方あれば更新が新しい方を使う。
+    """
+    candidates = [p for p in (wot / "game.log", wot / "python.log") if p.exists()]
+    if not candidates:
+        return wot / "game.log"
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
+WOT_LOG = _pick_wot_log(WOT_DIR)
 
 
 def is_wot_running() -> bool:
@@ -145,7 +159,9 @@ def bring_wot_to_foreground(timeout: int = 60) -> bool:
     return False
 
 
-_LOG_TS_RE = re.compile(rb"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.\d+:")
+# python.log (v2.3):  "2026-07-03 13:05:44.123: INFO: ..."
+# game.log   (v2.4+): "[2026-11-12 17:33:25.137] [INFO] ..."
+_LOG_TS_RE = re.compile(rb"\[?(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\.\d+(?::|\])")
 
 
 def find_marker_since(data: bytes, marker: bytes, since: "datetime.datetime") -> int | None:

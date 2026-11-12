@@ -98,7 +98,18 @@ def deploy() -> None:
     dest_dir = WOT_DIR / "res_mods" / version / "scripts" / "client"
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    pairs = [(src, dest_dir / out) for src, out in SOURCES.items()]
+    # mod ソース中の __WOT_DIR__ を実際のインストール先に置き換えてからコンパイルする
+    # （PC ごとに WoT の場所が違うため。直書きだと別 PC で起動クラッシュする）
+    build_dir = MODS_DIR / "build"
+    build_dir.mkdir(exist_ok=True)
+    pairs = []
+    for src, out in SOURCES.items():
+        rendered = build_dir / src.name
+        text = src.read_text(encoding="utf-8")
+        rendered.write_text(
+            text.replace("__WOT_DIR__", WOT_DIR.as_posix()), encoding="utf-8"
+        )
+        pairs.append((rendered, dest_dir / out))
     _compile_with_game_python(pairs)
 
     for _, dst in pairs:

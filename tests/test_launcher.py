@@ -51,3 +51,26 @@ class TestFindMarkerSince:
         log = b"no timestamp here BattleLoadingSpace\n"
         since = datetime.datetime(2026, 7, 3, 13, 5, 0)
         assert find_marker_since(log, MARKER, since) is None
+
+
+class TestGameLogFormat:
+    """v2.4 以降の game.log 形式（[YYYY-MM-DD HH:MM:SS.mmm] [LEVEL] ...）"""
+
+    @staticmethod
+    def _gline(ts: str, text: str) -> bytes:
+        return f"[{ts}.137] [INFO] [Main] [SCRIPT] {text}\n".encode()
+
+    def test_finds_marker_after_since(self):
+        log = self._gline(
+            "2026-11-12 17:33:25",
+            "[gui.app_loader.loader] Space is changed: WaitingSpace() -> BattleLoadingSpace()",
+        )
+        since = datetime.datetime(2026, 11, 12, 17, 33, 0)
+        pos = find_marker_since(log, MARKER, since)
+        assert pos is not None
+        assert log[:pos].endswith(MARKER)
+
+    def test_ignores_stale_marker(self):
+        log = self._gline("2026-11-12 16:00:00", "Space is changed: -> BattleLoadingSpace()")
+        since = datetime.datetime(2026, 11, 12, 17, 0, 0)
+        assert find_marker_since(log, MARKER, since) is None

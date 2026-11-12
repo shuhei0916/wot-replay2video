@@ -16,3 +16,4 @@ config/token.json*
 Thumbs.db
 .venv-wsl/
 config.yaml.bak*
+mods/build/

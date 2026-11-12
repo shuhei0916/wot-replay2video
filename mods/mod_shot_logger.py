@@ -29,7 +29,7 @@ import json
 import time
 
 MOD_NAME = 'mod_shot_logger'
-OUTPUT_PATH = 'C:/Games/World_of_Tanks_ASIA/shot_events.json'
+OUTPUT_PATH = '__WOT_DIR__/shot_events.json'
 
 _events = []
 _arena_start_epoch = None
