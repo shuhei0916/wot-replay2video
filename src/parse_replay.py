@@ -112,13 +112,15 @@ def _vehicle_display_name(vehicle_tag: str) -> str:
 
 
 TITLE_LANGS = ("en", "ja")
+TITLE_SEPARATOR = " | "
 
 
 def generate_title(info: "BattleInfo", lang: str = "ja") -> str:
     """
     BattleInfo からショート動画用タイトルを生成する（lang: "ja" / "en"）。
 
-    形式: 「タンク名, キル数, ダメージ数, 勲章（あれば）」（2026-07-17 方針）。
+    形式: 「タンク名 | キル数 | ダメージ数 | 勲章（あれば）」（2026-07-17 方針）。
+    区切りは " | "（カンマだと数字の桁区切りと紛れるため。2026-11-13）。
     LLM は使わないシンプルな固定テンプレート。
     0 キルのときはキル数項目を省く（2026-07-20 方針）。
     車両名はクライアント収録の公式名（英字）なので言語共通。
@@ -137,7 +139,7 @@ def generate_title(info: "BattleInfo", lang: str = "ja") -> str:
             parts.append(f"{s.kills}キル")
         parts.append(f"{s.damage_dealt:,}ダメージ")
     parts += notable_medals(s.achievements, lang=lang)
-    return ", ".join(parts)
+    return TITLE_SEPARATOR.join(parts)
 
 
 def parse_replay(path: Path) -> BattleInfo:

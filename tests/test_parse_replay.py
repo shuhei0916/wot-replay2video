@@ -164,48 +164,48 @@ class TestGenerateTitle:
 
     def test_simple_format(self):
         # 「タンク名, キル数, ダメージ数」（2026-07-17 方針）
-        assert generate_title(self._info([])) == "T95, 2キル, 2,416ダメージ"
+        assert generate_title(self._info([])) == "T95 | 2キル | 2,416ダメージ"
 
     def test_medal_appended(self):
         title = generate_title(self._info([self.KOLOBANOV]))
-        assert title == "T95, 2キル, 2,416ダメージ, コロバノフ勲章"
+        assert title == "T95 | 2キル | 2,416ダメージ | コロバノフ勲章"
 
     def test_multiple_medals_epic_first(self):
         title = generate_title(self._info([self.TOP_GUN, self.KOLOBANOV]))
-        assert title == "T95, 2キル, 2,416ダメージ, コロバノフ勲章, トップガン"
+        assert title == "T95 | 2キル | 2,416ダメージ | コロバノフ勲章 | トップガン"
 
     def test_zero_kills_omitted(self):
         # 0キルはアピールにならないので項目ごと省く（2026-07-20 方針）
-        assert generate_title(self._info([], kills=0)) == "T95, 2,416ダメージ"
+        assert generate_title(self._info([], kills=0)) == "T95 | 2,416ダメージ"
 
     def test_zero_kills_with_medal(self):
         title = generate_title(self._info([self.KOLOBANOV], kills=0))
-        assert title == "T95, 2,416ダメージ, コロバノフ勲章"
+        assert title == "T95 | 2,416ダメージ | コロバノフ勲章"
 
     def test_fixture_replay(self, info):
         # "Type58"(crude derivation) ではなく公式表示名 "Type 58"（vehicle_names.json 由来）
-        assert generate_title(info) == "Type 58, 1キル, 974ダメージ"
+        assert generate_title(info) == "Type 58 | 1キル | 974ダメージ"
 
     # ---- 英語タイトル（既定タイトル。2026-11-13 方針） ----
 
     def test_english_format(self):
-        assert generate_title(self._info([]), lang="en") == "T95, 2 kills, 2,416 damage"
+        assert generate_title(self._info([]), lang="en") == "T95 | 2 kills | 2,416 damage"
 
     def test_english_single_kill(self):
-        assert generate_title(self._info([], kills=1), lang="en") == "T95, 1 kill, 2,416 damage"
+        assert generate_title(self._info([], kills=1), lang="en") == "T95 | 1 kill | 2,416 damage"
 
     def test_english_zero_kills_omitted(self):
-        assert generate_title(self._info([], kills=0), lang="en") == "T95, 2,416 damage"
+        assert generate_title(self._info([], kills=0), lang="en") == "T95 | 2,416 damage"
 
     def test_english_medals(self):
         title = generate_title(self._info([self.TOP_GUN, self.KOLOBANOV]), lang="en")
-        assert title == "T95, 2 kills, 2,416 damage, Kolobanov's Medal, Top Gun"
+        assert title == "T95 | 2 kills | 2,416 damage | Kolobanov's Medal | Top Gun"
 
     def test_unknown_vehicle_tag_falls_back_to_crude_derivation(self):
         # vehicle_names.json に無いタグ（新規車両等）は文字列加工にフォールバック
         info = self._info([])
         info.player_vehicle = "usa-A999_Brand_New_Tank"
-        assert generate_title(info) == "Brand New Tank, 2キル, 2,416ダメージ"
+        assert generate_title(info) == "Brand New Tank | 2キル | 2,416ダメージ"
 
 
 # ---- 全車両リスト ----
