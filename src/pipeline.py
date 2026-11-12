@@ -300,10 +300,12 @@ def make_highlight_shorts(recording_path: Path) -> Path | None:
 
 def build_titles(replay_path: Path) -> dict[str, str]:
     """
-    リプレイのメタデータから多言語タイトルを生成する（"ja" は必ず含む）。
+    リプレイのメタデータから多言語タイトルを生成する。
 
+    テンプレート（既定）は en + ja。en を YouTube の既定タイトルにし、ja は
+    localizations として日本語 UI の視聴者に出す（2026-11-13 方針、海外視聴者想定）。
     youtube.llm_title が有効なら claude -p で ja+en+ru を一括生成し、
-    失敗時はテンプレート生成（ja のみ）、解析失敗時はファイル名ベース。
+    失敗時はテンプレート、解析失敗時はファイル名ベース（ja のみ）。
     """
     try:
         info = parse_replay(replay_path)
@@ -317,7 +319,8 @@ def build_titles(replay_path: Path) -> dict[str, str]:
             return titles
         print("警告: LLM タイトル生成に失敗。テンプレートにフォールバックします")
 
-    return {"ja": generate_title(info)}
+    from src.parse_replay import TITLE_LANGS
+    return {lang: generate_title(info, lang=lang) for lang in TITLE_LANGS}
 
 
 def upload_shorts(
@@ -385,7 +388,7 @@ def process_replay(replay_path: Path) -> Path:
         return recording
 
     titles = build_titles(replay_path)
-    title = titles["ja"]
+    title = titles.get("en") or titles["ja"]  # 既定タイトルは英語
     shorts_path.with_suffix(".txt").write_text(title, encoding="utf-8")
     # 多言語タイトルはサイドカーに保存（バックログからのアップロードでも使う）
     shorts_path.with_suffix(".titles.json").write_text(

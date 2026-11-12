@@ -225,3 +225,24 @@ class TestShouldRetry:
 
     def test_retries_when_below_max(self):
         assert should_retry(status_code=503, attempt=2, max_attempts=3)
+
+
+class TestDefaultLanguageInference:
+    def test_english_title_makes_en_default(self):
+        body = build_video_metadata(
+            "T95, 2 kills, 2,416 damage", "public",
+            localizations={"en": "T95, 2 kills, 2,416 damage", "ja": "T95, 2キル, 2,416ダメージ"},
+        )
+        assert body["snippet"]["defaultLanguage"] == "en"
+        assert body["localizations"] == {
+            "ja": {"title": "T95, 2キル, 2,416ダメージ", "description": ""}
+        }
+
+    def test_legacy_japanese_title_stays_ja(self):
+        # 旧バックログ（.txt が日本語）でも従来どおり ja が既定になる
+        body = build_video_metadata(
+            "T95, 2キル, 2,416ダメージ", "public",
+            localizations={"ja": "T95, 2キル, 2,416ダメージ"},
+        )
+        assert body["snippet"]["defaultLanguage"] == "ja"
+        assert body["localizations"] == {}

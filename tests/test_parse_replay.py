@@ -186,6 +186,21 @@ class TestGenerateTitle:
         # "Type58"(crude derivation) ではなく公式表示名 "Type 58"（vehicle_names.json 由来）
         assert generate_title(info) == "Type 58, 1キル, 974ダメージ"
 
+    # ---- 英語タイトル（既定タイトル。2026-11-13 方針） ----
+
+    def test_english_format(self):
+        assert generate_title(self._info([]), lang="en") == "T95, 2 kills, 2,416 damage"
+
+    def test_english_single_kill(self):
+        assert generate_title(self._info([], kills=1), lang="en") == "T95, 1 kill, 2,416 damage"
+
+    def test_english_zero_kills_omitted(self):
+        assert generate_title(self._info([], kills=0), lang="en") == "T95, 2,416 damage"
+
+    def test_english_medals(self):
+        title = generate_title(self._info([self.TOP_GUN, self.KOLOBANOV]), lang="en")
+        assert title == "T95, 2 kills, 2,416 damage, Kolobanov's Medal, Top Gun"
+
     def test_unknown_vehicle_tag_falls_back_to_crude_derivation(self):
         # vehicle_names.json に無いタグ（新規車両等）は文字列加工にフォールバック
         info = self._info([])

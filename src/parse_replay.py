@@ -111,23 +111,32 @@ def _vehicle_display_name(vehicle_tag: str) -> str:
     return after_code.replace("_", " ")
 
 
-def generate_title(info: "BattleInfo") -> str:
+TITLE_LANGS = ("en", "ja")
+
+
+def generate_title(info: "BattleInfo", lang: str = "ja") -> str:
     """
-    BattleInfo からショート動画用タイトルを生成する。
+    BattleInfo からショート動画用タイトルを生成する（lang: "ja" / "en"）。
 
     形式: 「タンク名, キル数, ダメージ数, 勲章（あれば）」（2026-07-17 方針）。
     LLM は使わないシンプルな固定テンプレート。
     0 キルのときはキル数項目を省く（2026-07-20 方針）。
+    車両名はクライアント収録の公式名（英字）なので言語共通。
     """
     from src.achievements import notable_medals
 
     vehicle = _vehicle_display_name(info.player_vehicle)
     s = info.player_stats
     parts = [vehicle]
-    if s.kills > 0:
-        parts.append(f"{s.kills}キル")
-    parts.append(f"{s.damage_dealt:,}ダメージ")
-    parts += notable_medals(s.achievements)
+    if lang == "en":
+        if s.kills > 0:
+            parts.append(f"{s.kills} kill" + ("s" if s.kills > 1 else ""))
+        parts.append(f"{s.damage_dealt:,} damage")
+    else:
+        if s.kills > 0:
+            parts.append(f"{s.kills}キル")
+        parts.append(f"{s.damage_dealt:,}ダメージ")
+    parts += notable_medals(s.achievements, lang=lang)
     return ", ".join(parts)
 
 

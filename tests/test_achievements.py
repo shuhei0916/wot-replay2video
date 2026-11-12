@@ -30,3 +30,12 @@ class TestNotableMedals:
 
     def test_unknown_id_ignored(self):
         assert notable_medals([999999]) == []
+
+
+class TestEnglishNames:
+    def test_english_epic_then_hero(self):
+        assert notable_medals([TOP_GUN, KOLOBANOV], lang="en") == ["Kolobanov's Medal", "Top Gun"]
+
+    def test_every_title_medal_has_english_name(self):
+        from src.achievements import BATTLE_HERO_MEDALS, EN_NAMES, EPIC_MEDALS
+        assert (EPIC_MEDALS | BATTLE_HERO_MEDALS) <= set(EN_NAMES)

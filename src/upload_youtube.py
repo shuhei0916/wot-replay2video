@@ -28,7 +28,7 @@ def build_video_metadata(
     category_id: str = "20",
     extra_tags: list[str] | None = None,
     localizations: dict[str, str] | None = None,
-    default_language: str = "ja",
+    default_language: str | None = None,
     publish_at: str | None = None,
     description: str | None = None,
 ) -> dict:
@@ -38,7 +38,8 @@ def build_video_metadata(
     Args:
         localizations: 言語コード → 翻訳タイトル。視聴者の UI 言語に応じて
             YouTube がタイトルを切り替える（例: {"en": "...", "ru": "..."}）
-        default_language: メインタイトルの言語コード
+        default_language: メインタイトルの言語コード。None なら localizations の
+            うち title と一致する言語（例: 英語タイトルなら "en"）、無ければ "ja"
         publish_at: 予約公開日時（RFC 3339 UTC）。指定時は privacy に関わらず
             private + publishAt になり、YouTube がその時刻に自動公開する
         description: 動画の説明欄（省略時は付与しない）
@@ -65,6 +66,10 @@ def build_video_metadata(
     if description is not None:
         body["snippet"]["description"] = description
     if localizations:
+        if default_language is None:
+            default_language = next(
+                (lang for lang, t in localizations.items() if t == title), "ja"
+            )
         body["snippet"]["defaultLanguage"] = default_language
         body["localizations"] = {
             lang: {"title": t, "description": ""}

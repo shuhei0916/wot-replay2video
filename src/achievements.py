@@ -61,9 +61,46 @@ def _load() -> dict[int, dict]:
     return {int(k): v for k, v in data["achievements"].items()}
 
 
-def notable_medals(achievement_ids: list[int]) -> list[str]:
+# タイトル対象勲章の英語名（WoT 英語クライアントでの表記）。
+# ASIA クライアントには日本語の .mo しか無く抽出できないため静的辞書で持つ。
+EN_NAMES = {
+    "medalKolobanov": "Kolobanov's Medal",
+    "medalLafayettePool": "Pool's Medal",
+    "medalRadleyWalters": "Radley-Walters' Medal",
+    "heroesOfRassenay": "Raseiniai Heroes Medal",
+    "medalBillotte": "Billotte's Medal",
+    "medalBurda": "Burda's Medal",
+    "medalDumitru": "Dumitru's Medal",
+    "medalOskin": "Oskin's Medal",
+    "medalNikolas": "Nicols' Medal",
+    "medalOrlik": "Orlik's Medal",
+    "medalFadin": "Fadin's Medal",
+    "medalDeLanglade": "de Langlade's Medal",
+    "medalGore": "Gore's Medal",
+    "huntsman": "Naidin's Medal",
+    "medalTamadaYoshio": "Tamada Yoshio's Medal",
+    "medalHalonen": "Halonen's Medal",
+    "medalLehvaslaiho": "Lehväslaiho's Medal",
+    "medalPascucci": "Pascucci's Medal",
+    "medalTarczay": "Tarczay's Medal",
+    "medalBrunoPietro": "Bruno's Medal",
+    "medalStark": "Stark's Medal",
+    "warrior": "Top Gun",
+    "invader": "Invader",
+    "sniper": "Sniper",
+    "sniper2": "Tank Sniper",
+    "mainGun": "High Caliber",
+    "defender": "Defender",
+    "steelwall": "Steel Wall",
+    "supporter": "Confederate",
+    "scout": "Scout",
+    "evileye": "Patrol Duty",
+}
+
+
+def notable_medals(achievement_ids: list[int], lang: str = "ja") -> list[str]:
     """
-    勲章 ID のリストから、タイトルに載せる価値のある勲章の日本語名を返す。
+    勲章 ID のリストから、タイトルに載せる価値のある勲章名を返す（lang: "ja" / "en"）。
 
     エピック勲章 → バトルヒーロー勲章の順。該当なしなら空リスト。
     """
@@ -73,11 +110,12 @@ def notable_medals(achievement_ids: list[int]) -> list[str]:
         entry = table.get(aid)
         if entry is None:
             continue
-        name, ja = entry["name"], entry.get("ja")
-        if not ja:
+        name = entry["name"]
+        label = EN_NAMES.get(name) if lang == "en" else entry.get("ja")
+        if not label:
             continue
         if name in EPIC_MEDALS:
-            epic.append(ja)
+            epic.append(label)
         elif name in BATTLE_HERO_MEDALS:
-            hero.append(ja)
+            hero.append(label)
     return epic + hero
