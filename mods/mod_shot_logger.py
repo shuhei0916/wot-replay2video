@@ -2,7 +2,7 @@
 # WoT の組み込み Python は 2.7。py2.7 でコンパイルした .pyc を
 # res_mods/<version>/scripts/client/ に配置する（ソース .py は無視される）。
 """
-mod_shot_logger v4 - リプレイ再生中の射撃・被弾イベントを shot_events.json に記録する。
+mod_shot_logger v5 - リプレイ再生中の射撃・被弾イベントを shot_events.json に記録する。
 
 設計:
 - 各イベントに壁時計時刻 (epoch) を記録する。録画開始時刻(パイプライン側が
@@ -32,16 +32,20 @@ MOD_NAME = 'mod_shot_logger'
 OUTPUT_PATH = '__WOT_DIR__/shot_events.json'
 
 _events = []
+_positions = []  # [[epoch, x, z], ...] 自車のワールド座標（1秒ごと。長距離移動の検出用）
 _arena_start_epoch = None
 _death_recorded = False
 _last_known_health = None  # 自前追跡する直前HP（onHealthChanged 間で引き継ぐ）
+
+POSITION_INTERVAL_SEC = 1.0
 
 
 def _write():
     try:
         f = open(OUTPUT_PATH, 'w')
         json.dump({'arena_start_epoch': _arena_start_epoch,
-                   'events': _events}, f)
+                   'events': _events,
+                   'positions': _positions}, f)
         f.close()
     except Exception:
         pass
@@ -57,7 +61,7 @@ def _record(kind, **extra):
 import BigWorld  # noqa: E402
 
 _write()  # ロード確認用の初期書き出し
-BigWorld.logInfo(MOD_NAME, 'v4 loaded. output -> ' + OUTPUT_PATH, None)
+BigWorld.logInfo(MOD_NAME, 'v5 loaded. output -> ' + OUTPUT_PATH, None)
 
 
 # --------------------------------------------------------------------------
@@ -178,3 +182,37 @@ def _try_hook_avatar(attempt=0):
 
 
 BigWorld.callback(2.0, lambda: _try_hook_avatar())
+
+
+# --------------------------------------------------------------------------
+# 自車位置のサンプリング（v5）: 戦闘中（playerVehicleID がある間）だけ
+# 1秒ごとに x, z を記録する。動画側で「クリップ間の長距離移動」を判定し、
+# 早送り＋ミニマップ表示のつなぎを入れるのに使う。
+# --------------------------------------------------------------------------
+
+def _own_position():
+    player = BigWorld.player()
+    pid = getattr(player, 'playerVehicleID', None)
+    if pid is None:
+        return None
+    v = BigWorld.entity(pid)
+    if v is not None:
+        p = v.position
+    else:
+        p = player.getOwnVehiclePosition()
+    return round(p.x, 1), round(p.z, 1)
+
+
+def _sample_position():
+    try:
+        pos = _own_position()
+        if pos is not None:
+            _positions.append([round(time.time(), 3), pos[0], pos[1]])
+            _write()
+    except Exception:
+        pass  # ロビー・ロード中などは取れなくて当然なので黙って次へ
+    BigWorld.callback(POSITION_INTERVAL_SEC, _sample_position)
+
+
+BigWorld.callback(POSITION_INTERVAL_SEC, _sample_position)
+BigWorld.logInfo(MOD_NAME, 'v5 position sampler started', None)

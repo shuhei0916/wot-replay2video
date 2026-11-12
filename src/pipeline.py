@@ -293,7 +293,8 @@ def make_highlight_shorts(recording_path: Path) -> Path | None:
 
     shorts_path = recording_path.with_name(recording_path.stem + "_shorts.mp4")
     print(f"Shorts 生成中 → {shorts_path.name}")
-    make_shorts(recording_path, events, shorts_path)
+    from src.minimap import load_positions
+    make_shorts(recording_path, events, shorts_path, positions=load_positions(recording_path))
     return shorts_path
 
 

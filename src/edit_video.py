@@ -99,10 +99,20 @@ def hp_overlay_config() -> dict | None:
     return cfg
 
 
+def _center_crop_filter(src_width: int, src_height: int) -> str:
+    crop_w = int(src_height * 9 / 16)
+    crop_x = (src_width - crop_w) // 2
+    return (
+        f"crop={crop_w}:{src_height}:{crop_x}:0,"
+        f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}"
+    )
+
+
 def build_filter_args(
     src_width: int,
     src_height: int,
     hp_overlay: dict | None = None,
+    minimap: dict | None = None,
 ) -> list[str]:
     """
     クリップ切り出し用の ffmpeg フィルタ引数を組み立てる。
@@ -111,31 +121,122 @@ def build_filter_args(
     元フレーム左下 HUD の HP バー矩形（src）を切り出して縦動画上部
     （dst: 幅 w で中央寄せ、上端 y）に重ねる filter_complex になる。
     HP バーは毎フレーム元映像から取るので、被弾によるバーの変化も映る。
+
+    minimap（初弾マップ）が指定されていれば、元フレーム右下のミニマップ矩形
+    （src）を dst の位置に、クリップ内の start〜end 秒だけフェード付きで重ねる。
     """
-    crop_w = int(src_height * 9 / 16)
-    crop_h = src_height
-    crop_x = (src_width - crop_w) // 2
-    base = (
-        f"crop={crop_w}:{crop_h}:{crop_x}:0,"
-        f"scale={SHORTS_WIDTH}:{SHORTS_HEIGHT}"
-    )
-    if hp_overlay is None:
+    base = _center_crop_filter(src_width, src_height)
+    if hp_overlay is None and minimap is None:
         return ["-vf", base]
 
-    s, d = hp_overlay["src"], hp_overlay["dst"]
-    dst_w = d["w"]
-    dst_h = round(s["h"] * dst_w / s["w"])  # アスペクト比維持
-    dst_x = (SHORTS_WIDTH - dst_w) // 2
-    return [
-        "-filter_complex",
-        (
-            f"[0:v]split=2[main][hud];"
-            f"[main]{base}[bg];"
+    n = 1 + (hp_overlay is not None) + (minimap is not None)
+    parts = [f"[0:v]split={n}[main]" + ("[hud]" if hp_overlay else "") + ("[mm]" if minimap else "")]
+    parts.append(f"[main]{base}[bg0]")
+    cur = "bg0"
+
+    if hp_overlay is not None:
+        s, d = hp_overlay["src"], hp_overlay["dst"]
+        dst_w = d["w"]
+        dst_h = round(s["h"] * dst_w / s["w"])  # アスペクト比維持
+        dst_x = (SHORTS_WIDTH - dst_w) // 2
+        parts.append(
             f"[hud]crop={s['w']}:{s['h']}:{s['x']}:{s['y']},"
-            f"scale={dst_w}:{dst_h}:flags=lanczos[bar];"
-            f"[bg][bar]overlay={dst_x}:{d['y']}"
-        ),
-    ]
+            f"scale={dst_w}:{dst_h}:flags=lanczos[bar]"
+        )
+        parts.append(f"[{cur}][bar]overlay={dst_x}:{d['y']}[bg1]")
+        cur = "bg1"
+
+    if minimap is not None:
+        s, d = minimap["src"], minimap["dst"]
+        a, b = minimap["start"], minimap["end"]
+        fade = 0.25
+        dst_w = d["w"]
+        dst_h = round(s["h"] * dst_w / s["w"])
+        dst_x = (SHORTS_WIDTH - dst_w) // 2
+        parts.append(
+            f"[mm]crop={s['w']}:{s['h']}:{s['x']}:{s['y']},"
+            f"scale={dst_w}:{dst_h}:flags=lanczos,format=rgba,"
+            f"fade=t=in:st={a}:d={fade}:alpha=1,"
+            f"fade=t=out:st={max(a, b - fade)}:d={fade}:alpha=1[map]"
+        )
+        parts.append(
+            f"[{cur}][map]overlay={dst_x}:{d['y']}:enable='between(t,{a},{b})'[bg2]"
+        )
+        cur = "bg2"
+
+    # 最後のラベルを外して出力に流す
+    last = parts[-1]
+    parts[-1] = last[: last.rfind("[")]
+    return ["-filter_complex", ";".join(parts)]
+
+
+# Shorts の音声は全クリップで揃える（concat -c copy の前提。早送りつなぎの無音と合わせる）
+AUDIO_ARGS = ["-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "160k"]
+VIDEO_ARGS = ["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p", "-r", "60"]
+
+_FONT = "C\\:/Windows/Fonts/meiryob.ttc"
+
+
+def build_travel_filter(
+    src_width: int,
+    src_height: int,
+    minimap_src: dict,
+    speed: float,
+    map_width: int = 1000,
+) -> str:
+    """
+    早送りつなぎ用のフィルタ。ぼかした戦闘映像を背景に、ミニマップを大写しにして
+    「早送り ×N」の表示を付ける。
+    """
+    s = minimap_src
+    map_h = round(s["h"] * map_width / s["w"])
+    map_y = (SHORTS_HEIGHT - map_h) // 2 - 80
+    label = f"早送り ×{round(speed)}"
+    return (
+        f"[0:v]setpts=PTS/{speed},split=2[v][mm];"
+        f"[v]{_center_crop_filter(src_width, src_height)},boxblur=20:2,"
+        f"eq=brightness=-0.25[bg];"
+        f"[mm]crop={s['w']}:{s['h']}:{s['x']}:{s['y']},"
+        f"scale={map_width}:{map_h}:flags=lanczos[map];"
+        f"[bg][map]overlay=(W-w)/2:{map_y},"
+        f"drawtext=fontfile='{_FONT}':text='{label}':fontsize=72:fontcolor=white:"
+        f"borderw=4:bordercolor=black:x=(w-text_w)/2:y={map_y + map_h + 40}[out]"
+    )
+
+
+def make_travel_clip(
+    video_path: Path,
+    src_start: float,
+    src_end: float,
+    speed: float,
+    minimap_src: dict,
+    output_path: Path,
+    src_width: int = 1920,
+    src_height: int = 1080,
+) -> Path:
+    """移動区間を早送りし、ミニマップ大写しのつなぎクリップ（無音）を作る。"""
+    ffmpeg = _find_ffmpeg()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    out_dur = (src_end - src_start) / speed
+    subprocess.run(
+        [
+            ffmpeg,
+            "-ss", str(max(0, src_start)),
+            "-t", str(src_end - src_start),
+            "-i", str(video_path),
+            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+            "-filter_complex", build_travel_filter(src_width, src_height, minimap_src, speed),
+            "-map", "[out]", "-map", "1:a",
+            "-t", f"{out_dur:.3f}",
+            *VIDEO_ARGS,
+            *AUDIO_ARGS,
+            "-y",
+            str(output_path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return output_path
 
 
 def clip_and_crop(
@@ -146,6 +247,7 @@ def clip_and_crop(
     src_width: int = 1920,
     src_height: int = 1080,
     hp_overlay: dict | None = None,
+    minimap: dict | None = None,
 ) -> Path:
     """
     動画の指定区間を切り出し、中央を 9:16 にクロップして保存する。
@@ -171,11 +273,9 @@ def clip_and_crop(
             "-ss", str(max(0, start)),
             "-i", str(video_path),
             "-t", str(duration),
-            *build_filter_args(src_width, src_height, hp_overlay),
-            "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "23",
-            "-pix_fmt", "yuv420p",
+            *build_filter_args(src_width, src_height, hp_overlay, minimap),
+            *VIDEO_ARGS,
+            *AUDIO_ARGS,
             "-y",
             str(output_path),
         ],
@@ -189,6 +289,7 @@ def make_shorts(
     video_path: Path,
     events: list[HighlightEvent],
     output_path: Path | None = None,
+    positions: list[tuple[float, float, float]] | None = None,
 ) -> Path:
     """
     ハイライトイベントから YouTube Shorts 動画を生成する。
@@ -220,13 +321,64 @@ def make_shorts(
 
     hp_overlay = hp_overlay_config()
 
+    from src.minimap import (
+        fit_travel_to_budget,
+        minimap_config,
+        plan_first_shot_overlay,
+        plan_travel_segments,
+    )
+    mm_cfg = minimap_config()
+    windows = [
+        (e.timestamp - _effective_pre(e), e.timestamp + _effective_post(e)) for e in selected
+    ]
+
+    first_shot = None
+    travel_after: dict[int, object] = {}
+    if mm_cfg is not None:
+        fs_cfg = mm_cfg.get("first_shot") or {}
+        if fs_cfg.get("enabled", True):
+            shot_times = [e.timestamp for e in events if e.event_type.startswith("shot")]
+            first_shot = plan_first_shot_overlay(
+                windows, shot_times, duration_sec=fs_cfg.get("duration_sec", 3.0)
+            )
+        tr_cfg = mm_cfg.get("travel") or {}
+        if tr_cfg.get("enabled", True) and positions:
+            segs = plan_travel_segments(
+                windows, positions,
+                min_distance_m=tr_cfg.get("min_distance_m", 150.0),
+                target_sec=tr_cfg.get("target_sec", 3.0),
+                min_speed=tr_cfg.get("min_speed", 4.0),
+                max_speed=tr_cfg.get("max_speed", 16.0),
+                max_out_sec=tr_cfg.get("max_out_sec", 5.0),
+            )
+            clips_total = sum(b - a for a, b in windows)
+            segs = fit_travel_to_budget(segs, clips_total, SHORTS_MAX_SEC)
+            travel_after = {s.after_clip: s for s in segs}
+
     for i, event in enumerate(selected):
         start = event.timestamp - _effective_pre(event)
         duration = _effective_duration(event)
         clip_out = clips_dir / f"clip_{i:03d}_{event.timestamp:.1f}s.mp4"
-        clip_and_crop(video_path, start, duration, clip_out, hp_overlay=hp_overlay)
+        minimap = None
+        if first_shot is not None and first_shot[0] == i:
+            minimap = {
+                "src": mm_cfg["src"], "dst": mm_cfg["first_shot"]["dst"],
+                "start": first_shot[1], "end": first_shot[2],
+            }
+        clip_and_crop(video_path, start, duration, clip_out,
+                      hp_overlay=hp_overlay, minimap=minimap)
         clip_paths.append(clip_out)
-        print(f"  clip {i+1}/{len(selected)}: {event.timestamp:.1f}s (score={event.score:.3f}) → {clip_out.name}")
+        note = "（初弾マップ）" if minimap else ""
+        print(f"  clip {i+1}/{len(selected)}: {event.timestamp:.1f}s (score={event.score:.3f}) → {clip_out.name}{note}")
+
+        seg = travel_after.get(i)
+        if seg is not None:
+            travel_out = clips_dir / f"clip_{i:03d}_travel.mp4"
+            make_travel_clip(video_path, seg.src_start, seg.src_end, seg.speed,
+                             mm_cfg["src"], travel_out)
+            clip_paths.append(travel_out)
+            print(f"    早送り {seg.src_start:.0f}-{seg.src_end:.0f}s "
+                  f"({seg.distance_m:.0f}m, ×{seg.speed:g}, {seg.out_duration:.1f}s)")
 
     # クリップリストファイル（ffmpeg concat 用）
     list_file = clips_dir / "concat_list.txt"

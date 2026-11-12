@@ -159,3 +159,40 @@ class TestBuildFilterArgs:
         _, graph = build_filter_args(1920, 1080, cfg)
         assert "scale=500:100:flags=lanczos" in graph  # 20 * 500/100 = 100
         assert "overlay=290:100" in graph              # (1080-500)//2 = 290
+
+
+MINIMAP = {
+    "src": {"x": 1400, "y": 560, "w": 520, "h": 520},
+    "dst": {"w": 700, "y": 1000},
+    "start": 1.5,
+    "end": 4.5,
+}
+
+
+class TestMinimapOverlay:
+    def test_minimap_only(self):
+        flag, graph = build_filter_args(1920, 1080, None, MINIMAP)
+        assert flag == "-filter_complex"
+        assert "split=2[main][mm]" in graph
+        assert "crop=520:520:1400:560" in graph
+        assert "scale=700:700:flags=lanczos" in graph
+        # 中央寄せ (1080-700)//2 = 190、表示区間だけ有効
+        assert "overlay=190:1000:enable='between(t,1.5,4.5)'" in graph
+        # 最後のフィルタは出力ラベルを持たない（そのまま出力に流れる）
+        assert not graph.rstrip().endswith("]")
+
+    def test_hp_and_minimap_together(self):
+        _, graph = build_filter_args(1920, 1080, HP_OVERLAY, MINIMAP)
+        assert "split=3[main][hud][mm]" in graph
+        assert "overlay=103:300[bg1]" in graph
+        assert "[bg1][map]overlay=190:1000" in graph
+
+
+class TestTravelFilter:
+    def test_speed_and_label(self):
+        from src.edit_video import build_travel_filter
+        graph = build_travel_filter(1920, 1080, MINIMAP["src"], 8.0)
+        assert graph.startswith("[0:v]setpts=PTS/8.0,")
+        assert "早送り ×8" in graph
+        assert "crop=520:520:1400:560" in graph
+        assert graph.endswith("[out]")
