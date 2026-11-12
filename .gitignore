@@ -14,3 +14,5 @@ config/token.json*
 
 # Windows
 Thumbs.db
+.venv-wsl/
+config.yaml.bak*

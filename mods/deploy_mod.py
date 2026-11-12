@@ -18,6 +18,7 @@ mod_shot_logger を py2.7 バイトコードにコンパイルして res_mods �
 from __future__ import annotations  # py -3.8 委譲実行で PEP 585 注釈を許すため
 
 import ctypes
+import os
 import shutil
 import struct
 import subprocess
@@ -26,7 +27,22 @@ from pathlib import Path
 
 from xml.etree import ElementTree
 
-WOT_DIR = Path(r"C:\Games\World_of_Tanks_ASIA")
+
+def _resolve_wot_dir() -> Path:
+    """WoT のインストール先。config.yaml の wot.dir を使う。
+
+    py -3.8 委譲実行時は src.config（3.10+ の型注釈を含む）を import できないため、
+    親プロセスが環境変数 WOT_DIR で渡す。
+    """
+    env = os.environ.get("WOT_DIR")
+    if env:
+        return Path(env)
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from src.config import wot_dir
+    return wot_dir()
+
+
+WOT_DIR = _resolve_wot_dir()
 PY27_DLL = WOT_DIR / "win64" / "python27.dll"
 PKG_LIB = WOT_DIR / "res" / "packages" / "scripts.pkg" / "scripts" / "common" / "Lib"
 
@@ -56,7 +72,10 @@ def _compile_with_game_python(pairs: list[tuple[Path, Path]]) -> None:
         args = []
         for src, dst in pairs:
             args += [str(src), str(dst)]
-        r = subprocess.run(["py", "-3.8", str(Path(__file__).resolve())] + args)
+        r = subprocess.run(
+            ["py", "-3.8", str(Path(__file__).resolve())] + args,
+            env={**os.environ, "WOT_DIR": str(WOT_DIR)},
+        )
         if r.returncode != 0:
             raise RuntimeError("py -3.8 でのコンパイルに失敗しました")
 
