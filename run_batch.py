@@ -82,9 +82,34 @@ def _start_logging() -> Path:
     return path
 
 
+def collect_web_replays(target_version: str) -> list[Path]:
+    """Web から収集済みのリプレイのうち、現行クライアントで再生できるもの。"""
+    from src.collect_web import web_config, web_dir
+    if not web_config()["enabled"]:
+        return []
+    return [
+        p for p in sorted(web_dir().glob("*.wotreplay"))
+        if read_replay_version(p) == target_version
+    ]
+
+
+def _collect_from_web() -> None:
+    """録画前に Web から新着の好成績リプレイを取り込む。失敗してもバッチは続ける。"""
+    from src.collect_web import collect, web_config
+    if not web_config()["enabled"]:
+        return
+    try:
+        collect()
+    except Exception as e:
+        print(f"警告: Web リプレイ収集に失敗しました（バッチは続行）: {e}")
+
+
 if __name__ == "__main__":
     print(f"ログ: {_start_logging()}")
+    _collect_from_web()
     replays = collect_replays()
+    if replays:
+        replays = replays + collect_web_replays(read_replay_version(replays[-1]))
     if not replays:
         print(f"対象リプレイがありません: {replays_dir()}")
         sys.exit(1)

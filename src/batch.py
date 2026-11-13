@@ -69,7 +69,11 @@ def _select_worthy(
         min_mastery = cfg.get("min_mastery", DEFAULT_MIN_MASTERY)
     random_only = cfg.get("random_battles_only", True)
 
+    from src.collect_web import interleave, is_web_replay, web_config
+    web_cfg = web_config()
+
     kept = []
+    web_kept: list[tuple[float, Path]] = []
     for p in paths:
         try:
             info = parse_replay(p)
@@ -80,6 +84,14 @@ def _select_worthy(
             print(f"  除外（ランダム戦以外: battleType={info.battle_type}）: {p.name}")
             continue
         stats = info.player_stats
+        if is_web_replay(p):
+            # Web 由来は WN8 だけで判定し、高い順に録画する
+            wn8 = info.wn8 or 0
+            if wn8 >= web_cfg["min_wn8"]:
+                web_kept.append((wn8, p))
+            else:
+                print(f"  除外（Web: WN8 {wn8:.0f}）: {p.name}")
+            continue
         if meets_criteria(stats, min_kills, min_damage, min_mastery):
             kept.append(p)
         else:
@@ -87,7 +99,8 @@ def _select_worthy(
                 f"  除外（{stats.kills}kill / {stats.damage_dealt}dmg / "
                 f"M章{stats.mark_of_mastery}）: {p.name}"
             )
-    return kept
+    web_sorted = [p for _, p in sorted(web_kept, key=lambda x: -x[0])]
+    return interleave(kept, web_sorted, int(web_cfg["own_per_web"]))
 
 
 def _has_result(path: Path) -> bool:

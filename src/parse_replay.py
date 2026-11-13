@@ -32,6 +32,8 @@ class PlayerStats:
     credits: int
     mark_of_mastery: int
     achievements: list[int] = field(default_factory=list)
+    type_comp_descr: int = 0          # 車両ID（WN8 期待値表の IDNum）
+    dropped_capture_points: int = 0   # 防衛ポイント（WN8 の DEF 項）
 
     @property
     def hit_rate(self) -> float:
@@ -60,6 +62,17 @@ class BattleInfo:
     @property
     def is_random_battle(self) -> bool:
         return self.battle_type == RANDOM_BATTLE_TYPE
+
+    @property
+    def wn8(self) -> float | None:
+        """この1戦の WN8。期待値表に無い車両は None。"""
+        from src.wn8 import battle_wn8
+
+        s = self.player_stats
+        return battle_wn8(
+            s.type_comp_descr, s.damage_dealt, s.kills, s.spotted,
+            s.dropped_capture_points, self.player_won,
+        )
 
 
 def _read_blocks(data: bytes) -> tuple[dict, list]:
@@ -180,6 +193,8 @@ def parse_replay(path: Path) -> BattleInfo:
         credits=personal_entry["credits"],
         mark_of_mastery=personal_entry["markOfMastery"],
         achievements=personal_entry.get("achievements", []),
+        type_comp_descr=personal_entry.get("typeCompDescr", 0),
+        dropped_capture_points=personal_entry.get("droppedCapturePoints", 0),
     )
 
     # Block 1 の vehicles から vehicleID → 名前のマップを作る

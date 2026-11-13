@@ -21,6 +21,7 @@ YouTube Shorts 動画（9:16, 最大60秒）
 - **運用**: 録画バッチは出かける前に `scripts/start_batch.bat` で手動開始、`stop_batch.bat` で1本処理後に停止。アップロードはタスクスケジューラで毎日（`scripts/register_tasks.ps1`）
 - **mod 配置**: クライアント更新・別 PC では `python mods/deploy_mod.py` を再実行（WoT パスは config から埋め込み）
 - **処理対象リプレイ**: Google Drive 同期フォルダ（`config.yaml` の `replays.dir`）
+- **Web 由来リプレイ**: `src/collect_web.py` が wot-record.com / skill4ltu.eu から好成績（1戦 WN8 が `web.min_wn8` 以上）のリプレイを収集し `web.dir` に置く。`run_batch.py` が録画前に自動実行。両サイトとも運営者から「サーバーに負担をかけない方法なら可」と許可済み（2026-11-13）なので、リクエスト間隔・本数上限は緩めないこと。Web 由来の Shorts は概要欄にプレイヤー名と出典 URL を入れる
 - **言語**: Python 3
 
 ## .wotreplay ファイル形式

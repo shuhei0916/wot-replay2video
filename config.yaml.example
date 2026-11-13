@@ -19,6 +19,17 @@ batch:
   random_battles_only: true  # ランダム戦以外（Story Mode/Epic Random等、battleType!=1）は
                              # 成績に関わらず動画化対象から除外する
 
+web:                         # Web 上の公開リプレイを収集して動画化する（src/collect_web.py）
+  enabled: false              # true: run_batch.py が録画前に収集し、録画対象に加える
+  # dir: "G:\path\to\replays_web"   # 保存先（省略時はプロジェクト内 replays/web）。台帳 collected.json もここ
+  sources: [wot_record, skill4ltu]   # wot-record.com / skill4ltu.eu
+  min_wn8: 4000              # この1戦 WN8 以上だけ採用（期待値表に無い新車両は不採用）
+  tiers: [6, 7, 8, 9, 10, 11]
+  max_downloads_per_run: 5   # 1 回の収集で採用する最大本数
+  max_pages: 3               # 各サイトの新着一覧を何ページ見るか
+  request_interval_sec: 5    # リクエスト間隔（サーバーに負担をかけないこと）
+  own_per_web: 2             # 録画・投稿の順番: 自分のプレイ N 本につき Web 由来 1 本
+
 preflight:
   min_free_gb: 50            # output/ のドライブの空き容量がこれ未満ならバッチを開始しない
 

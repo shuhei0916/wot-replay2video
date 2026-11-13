@@ -21,6 +21,7 @@ for _stream in (sys.stdout, sys.stderr):
     if _stream is not None and hasattr(_stream, "reconfigure"):
         _stream.reconfigure(errors="replace")
 
+from src.collect_web import interleave, web_config, web_dir
 from src.config import OUTPUT_DIR, load_config, replays_dir
 from src.parse_replay import parse_replay
 from src.pipeline import MIN_AUDIO_BITRATE, _audio_bitrate
@@ -58,6 +59,8 @@ def collect_pending(
 
         score = 0
         replay = replay_dir / (replay_stem_from_video(p.stem) + ".wotreplay")
+        if not replay.exists():
+            replay = web_dir() / replay.name  # Web 由来リプレイ
         try:
             s = parse_replay(replay).player_stats
             score = s.kills * 1000 + s.damage_dealt
@@ -79,6 +82,11 @@ def main() -> int:
         print("アップロード待ちの Shorts はありません")
         return 0
 
+    # 自分のプレイ own_per_web 本につき Web 由来 1 本の割合で並べる
+    own = [x for x in pending if not x[1].with_suffix(".desc.txt").exists()]
+    web = [x for x in pending if x[1].with_suffix(".desc.txt").exists()]
+    pending = interleave(own, web, int(web_config()["own_per_web"]))
+
     limit = int(yt.get("max_per_run", 5))
     print(f"アップロード待ち: {len(pending)} 本（今回は上位 {limit} 本まで）")
 
@@ -96,6 +104,11 @@ def main() -> int:
             except (ValueError, OSError):
                 pass
 
+        description = None
+        desc_path = path.with_suffix(".desc.txt")
+        if desc_path.exists():
+            description = desc_path.read_text(encoding="utf-8").strip() or None
+
         publish_at = allocate_publish_at()
         if publish_at:
             print(f"  公開予約: {publish_at}")
@@ -109,6 +122,7 @@ def main() -> int:
                 extra_tags=yt.get("default_tags", []),
                 localizations=localizations,
                 publish_at=publish_at,
+                description=description,
             )
             if video_id:
                 uploaded += 1

@@ -323,10 +323,24 @@ def build_titles(replay_path: Path) -> dict[str, str]:
     return {lang: generate_title(info, lang=lang) for lang in TITLE_LANGS}
 
 
+def build_description(replay_path: Path) -> str | None:
+    """Web 由来リプレイなら概要欄（プレイヤー名と出典）を返す。自分のリプレイは None。"""
+    from src.collect_web import build_description as web_description, origin_for
+
+    origin = origin_for(replay_path.name)
+    if origin is None:
+        return None
+    try:
+        return web_description(parse_replay(replay_path), origin)
+    except Exception:
+        return f"Replay: {origin.get('page_url', '')}"
+
+
 def upload_shorts(
     video_path: Path,
     title: str,
     localizations: dict[str, str] | None = None,
+    description: str | None = None,
 ) -> None:
     """Shorts を YouTube にアップロードする。失敗してもパイプラインは継続する。"""
     try:
@@ -345,6 +359,7 @@ def upload_shorts(
             extra_tags=yt.get("default_tags", []),
             localizations=localizations,
             publish_at=publish_at,
+            description=description,
         )
         if video_id and publish_at:
             commit_publish_at(publish_at)
@@ -395,8 +410,12 @@ def process_replay(replay_path: Path) -> Path:
         json.dumps(titles, ensure_ascii=False), encoding="utf-8",
     )
     print(f"タイトル: {title}")
+    # Web 由来はプレイヤー名と出典を概要欄に載せる（サイドカーはバックログ投稿でも使う）
+    description = build_description(replay_path)
+    if description:
+        shorts_path.with_suffix(".desc.txt").write_text(description, encoding="utf-8")
 
-    upload_shorts(shorts_path, title, localizations=titles)
+    upload_shorts(shorts_path, title, localizations=titles, description=description)
     print(f"完了: {shorts_path}")
     _delete_raw_if_longform_disabled(recording, shorts_path.stem)
     return shorts_path
