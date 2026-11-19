@@ -12,6 +12,7 @@ REPLAY_FILE = Path(__file__).parent / "fixtures" / "20260604_1729_china-Ch20_Typ
 from src.parse_replay import (
     BattleInfo,
     PlayerStats,
+    fit_title,
     generate_title,
     parse_replay,
     read_replay_version,
@@ -223,3 +224,20 @@ class TestAllVehicles:
     def test_player_vehicle_in_list(self, info):
         names = [v["name"] for v in info.all_vehicles]
         assert "PrsimPrsim" in names
+
+
+class TestFitTitle:
+    def test_short_title_unchanged(self):
+        assert fit_title("T95 | 2 kills | 2,416 damage") == "T95 | 2 kills | 2,416 damage"
+
+    def test_drops_trailing_medals_until_fit(self):
+        # 2026-11-19 実例: 112 文字で invalidTitle になった
+        title = ("AMX 30 prototype | 9 kills | 7,863 damage | Radley-Walters' Medal"
+                 " | Lehväslaiho's Medal | High Caliber | Top Gun")
+        fitted = fit_title(title)
+        assert len(fitted) <= 100
+        assert fitted == ("AMX 30 prototype | 9 kills | 7,863 damage | Radley-Walters' Medal"
+                          " | Lehväslaiho's Medal")
+
+    def test_single_overlong_item_truncated(self):
+        assert fit_title("x" * 150) == "x" * 100

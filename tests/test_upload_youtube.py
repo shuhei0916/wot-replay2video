@@ -79,6 +79,16 @@ class TestExtractTagsFromTitle:
 # ---- build_video_metadata ----
 
 class TestBuildVideoMetadata:
+    def test_overlong_titles_are_fitted(self):
+        long_en = "Tank | 9 kills | 7,863 damage" + " | Some Long Medal Name" * 5
+        long_ja = "Tank | 9キル | 7,863ダメージ" + " | とても長い勲章の名前です" * 8
+        body = build_video_metadata(
+            long_en, privacy="public", localizations={"en": long_en, "ja": long_ja},
+        )
+        assert len(body["snippet"]["title"]) <= 100
+        assert body["snippet"]["defaultLanguage"] == "en"
+        assert len(body["localizations"]["ja"]["title"]) <= 100
+
     def test_title_is_set(self):
         meta = build_video_metadata("テストタイトル", privacy="private")
         assert meta["snippet"]["title"] == "テストタイトル"

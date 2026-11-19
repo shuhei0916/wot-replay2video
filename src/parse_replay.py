@@ -126,6 +126,20 @@ def _vehicle_display_name(vehicle_tag: str) -> str:
 
 TITLE_LANGS = ("en", "ja")
 TITLE_SEPARATOR = " | "
+MAX_TITLE_LEN = 100  # YouTube のタイトル上限（超えると invalidTitle で 400。2026-11-19）
+
+
+def fit_title(title: str, max_len: int = MAX_TITLE_LEN) -> str:
+    """
+    タイトルを max_len 文字以内に収める。
+
+    " | " 区切りの末尾項目（優先度の低い勲章）から順に落とす。
+    先頭項目（車両名）だけでも超える場合は文字数で切り詰める。
+    """
+    parts = title.split(TITLE_SEPARATOR)
+    while len(parts) > 1 and len(TITLE_SEPARATOR.join(parts)) > max_len:
+        parts.pop()
+    return TITLE_SEPARATOR.join(parts)[:max_len]
 
 
 def generate_title(info: "BattleInfo", lang: str = "ja") -> str:
@@ -136,6 +150,7 @@ def generate_title(info: "BattleInfo", lang: str = "ja") -> str:
     区切りは " | "（カンマだと数字の桁区切りと紛れるため。2026-11-13）。
     LLM は使わないシンプルな固定テンプレート。
     0 キルのときはキル数項目を省く（2026-07-20 方針）。
+    100 文字を超える場合は末尾の勲章から省く（fit_title）。
     車両名はクライアント収録の公式名（英字）なので言語共通。
     """
     from src.achievements import notable_medals
@@ -152,7 +167,7 @@ def generate_title(info: "BattleInfo", lang: str = "ja") -> str:
             parts.append(f"{s.kills}キル")
         parts.append(f"{s.damage_dealt:,}ダメージ")
     parts += notable_medals(s.achievements, lang=lang)
-    return TITLE_SEPARATOR.join(parts)
+    return fit_title(TITLE_SEPARATOR.join(parts))
 
 
 def parse_replay(path: Path) -> BattleInfo:

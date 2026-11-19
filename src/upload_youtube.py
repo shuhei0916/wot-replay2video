@@ -12,6 +12,8 @@ import json
 import re
 from pathlib import Path
 
+from src.parse_replay import fit_title
+
 # ---- 純粋ロジック（テスト対象） ----
 
 RETRIABLE_STATUS_CODES = {500, 502, 503, 504}
@@ -44,6 +46,11 @@ def build_video_metadata(
             private + publishAt になり、YouTube がその時刻に自動公開する
         description: 動画の説明欄（省略時は付与しない）
     """
+    # 生成済みサイドカー（.txt / .titles.json）が上限超えでも弾かれないよう、ここでも収める
+    title = fit_title(title)
+    if localizations:
+        localizations = {lang: fit_title(t) for lang, t in localizations.items()}
+
     tags = extract_tags_from_title(title)
     if extra_tags:
         for t in extra_tags:
