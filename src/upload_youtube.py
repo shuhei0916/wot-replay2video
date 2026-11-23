@@ -292,3 +292,45 @@ def update_video_description(
     snippet = items[0]["snippet"]
     snippet["description"] = description
     youtube.videos().update(part="snippet", body={"id": video_id, "snippet": snippet}).execute()
+
+
+def unschedule_video(
+    video_id: str,
+    secrets_path: Path | None = None,
+    token_path: Path | None = None,
+) -> dict:
+    """
+    予約公開を取り消して非公開のままにする（不良 Shorts の公開を止めるため。2026-11-23）。
+
+    videos.update の status は丸ごと置き換わるため、現在の status を取得して
+    publishAt だけ外し、privacyStatus を private にして送り返す。
+
+    Returns:
+        更新後の status
+    """
+    import googleapiclient.discovery
+
+    config_dir = Path(__file__).parent.parent / "config"
+    secrets_path = secrets_path or config_dir / "client_secrets.json"
+    token_path = token_path or config_dir / "token.json"
+
+    creds = _get_credentials(secrets_path, token_path)
+    youtube = googleapiclient.discovery.build("youtube", "v3", credentials=creds)
+
+    current = youtube.videos().list(part="status", id=video_id).execute()
+    items = current.get("items", [])
+    if not items:
+        raise RuntimeError(f"動画が見つかりません: {video_id}")
+
+    status = unscheduled_status(items[0]["status"])
+    resp = youtube.videos().update(part="status", body={"id": video_id, "status": status}).execute()
+    return resp["status"]
+
+
+def unscheduled_status(status: dict) -> dict:
+    """status から予約公開を外し、非公開にした書き戻し用の dict を返す。"""
+    keep = ("embeddable", "license", "publicStatsViewable", "selfDeclaredMadeForKids",
+            "containsSyntheticMedia")
+    out = {k: status[k] for k in keep if k in status}
+    out["privacyStatus"] = "private"
+    return out

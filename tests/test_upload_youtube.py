@@ -6,6 +6,7 @@ YouTube API 通信・OAuth フローはテスト対象外。
 import json
 import pytest
 from pathlib import Path
+import src.upload_youtube as upload_youtube_mod
 
 from src.upload_youtube import (
     extract_tags_from_title,
@@ -256,3 +257,14 @@ class TestDefaultLanguageInference:
         )
         assert body["snippet"]["defaultLanguage"] == "ja"
         assert body["localizations"] == {}
+
+
+class TestUnscheduledStatus:
+    def test_drops_publish_at_and_keeps_flags(self):
+        out = upload_youtube_mod.unscheduled_status({
+            "privacyStatus": "private", "publishAt": "2026-11-23T22:00:00Z",
+            "uploadStatus": "processed", "selfDeclaredMadeForKids": False,
+            "embeddable": True,
+        })
+        assert out == {"privacyStatus": "private", "selfDeclaredMadeForKids": False,
+                       "embeddable": True}
