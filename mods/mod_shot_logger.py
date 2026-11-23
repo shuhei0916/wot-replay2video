@@ -2,7 +2,7 @@
 # WoT の組み込み Python は 2.7。py2.7 でコンパイルした .pyc を
 # res_mods/<version>/scripts/client/ に配置する（ソース .py は無視される）。
 """
-mod_shot_logger v5 - リプレイ再生中の射撃・被弾イベントを shot_events.json に記録する。
+mod_shot_logger v6 - リプレイ再生中の射撃・被弾イベントを shot_events.json に記録する。
 
 設計:
 - 各イベントに壁時計時刻 (epoch) を記録する。録画開始時刻(パイプライン側が
@@ -23,13 +23,26 @@ mod_shot_logger v5 - リプレイ再生中の射撃・被弾イベントを shot
   personality 読み込み時点では Avatar モジュールが未初期化のため、
   BigWorld.callback で遅延リトライして張る。
   ※実測では一度も発火していない（todo.md 参照）。death 検知には使わない。
+- AutoShootGunController フック（v6）: Vz. 71 Tesák 等の連射砲（オートシュート砲）は
+  showShooting を通らないため、射撃状態の変化 (set_stateStatus) と単発
+  (onDiscreteShot) を別に拾う。連射中は AUTO_SHOT_INTERVAL_SEC ごとに shot を記録する。
+- フリーカメラ自動復帰（v6）: リプレイ再生中に左クリックされると追従カメラ
+  (bound) からフリーカメラ (unbound) に切り替わり、録画が台無しになる
+  （2026-11-23 に 3 本削除）。バッチ録画中（BATCH_FLAG_PATH がある間）だけ
+  1 秒ごとに監視し、フリーカメラなら BattleReplay.__gotoBoundMode() で戻す。
+  free_camera / camera_restored / camera_restore_failed を記録し、
+  パイプラインは restore_failed があればその録画を捨てる。
+  手動でリプレイを見るとき（フラグなし）はフリーカメラを妨げない。
 """
 
 import json
+import os
 import time
 
 MOD_NAME = 'mod_shot_logger'
 OUTPUT_PATH = '__WOT_DIR__/shot_events.json'
+# パイプラインが録画中だけ作るフラグ。あるときだけフリーカメラを自動で戻す
+BATCH_FLAG_PATH = '__WOT_DIR__/replay2video_recording.flag'
 
 _events = []
 _positions = []  # [[epoch, x, z], ...] 自車のワールド座標（1秒ごと。長距離移動の検出用）
@@ -38,6 +51,7 @@ _death_recorded = False
 _last_known_health = None  # 自前追跡する直前HP（onHealthChanged 間で引き継ぐ）
 
 POSITION_INTERVAL_SEC = 1.0
+AUTO_SHOT_INTERVAL_SEC = 2.0  # 連射中に shot を刻む間隔（ハイライト候補の密度）
 
 
 def _write():
@@ -216,3 +230,140 @@ def _sample_position():
 
 BigWorld.callback(POSITION_INTERVAL_SEC, _sample_position)
 BigWorld.logInfo(MOD_NAME, 'v5 position sampler started', None)
+
+
+# --------------------------------------------------------------------------
+# 連射砲（AutoShootGunController）の射撃検知（v6）
+# set_stateStatus は射撃状態が変わるたびに呼ばれる。元処理の後に
+# 内部状態 __componentState.isShooting を見て連射の開始・終了を判定する。
+# --------------------------------------------------------------------------
+
+_auto_bursting = {}  # id(controller) -> [controller, 次に shot を刻む epoch]
+
+
+def _is_own_controller(ctrl):
+    player = BigWorld.player()
+    pid = getattr(player, 'playerVehicleID', None)
+    entity = getattr(ctrl, 'entity', None)
+    return pid is not None and entity is not None and getattr(entity, 'id', None) == pid
+
+
+def _auto_is_shooting(ctrl):
+    state = getattr(ctrl, '_AutoShootGunController__componentState', None)
+    v = getattr(state, 'isShooting', False)
+    if callable(v):
+        v = v()
+    return bool(v)
+
+
+def _auto_update(ctrl):
+    key = id(ctrl)
+    shooting = _auto_is_shooting(ctrl)
+    if shooting and key not in _auto_bursting:
+        _record('shot', auto=True)
+        _auto_bursting[key] = [ctrl, time.time() + AUTO_SHOT_INTERVAL_SEC]
+    elif not shooting and key in _auto_bursting:
+        del _auto_bursting[key]
+        _record('burst_end')
+
+
+def _auto_tick():
+    """連射が続いている間、AUTO_SHOT_INTERVAL_SEC ごとに shot を刻む。"""
+    now = time.time()
+    for key, entry in list(_auto_bursting.items()):
+        ctrl, next_at = entry
+        try:
+            if not _auto_is_shooting(ctrl):
+                del _auto_bursting[key]
+                _record('burst_end')
+            elif now >= next_at:
+                _record('shot', auto=True)
+                entry[1] = now + AUTO_SHOT_INTERVAL_SEC
+        except Exception:
+            _auto_bursting.pop(key, None)
+
+
+try:
+    import AutoShootGunController as _ASG
+
+    _asg_cls = _ASG.AutoShootGunController
+    _orig_set_stateStatus = _asg_cls.set_stateStatus
+    _orig_onDiscreteShot = _asg_cls.onDiscreteShot
+
+    def _hooked_set_stateStatus(self, *args, **kwargs):
+        result = _orig_set_stateStatus(self, *args, **kwargs)
+        try:
+            if _is_own_controller(self):
+                _auto_update(self)
+        except Exception as ex:
+            BigWorld.logWarning(MOD_NAME, 'auto-shoot state hook error: ' + str(ex), None)
+        return result
+
+    def _hooked_onDiscreteShot(self, *args, **kwargs):
+        try:
+            if _is_own_controller(self):
+                _record('shot', auto=True, discrete=True)
+        except Exception as ex:
+            BigWorld.logWarning(MOD_NAME, 'auto-shoot discrete hook error: ' + str(ex), None)
+        return _orig_onDiscreteShot(self, *args, **kwargs)
+
+    _asg_cls.set_stateStatus = _hooked_set_stateStatus
+    _asg_cls.onDiscreteShot = _hooked_onDiscreteShot
+    BigWorld.logInfo(MOD_NAME, 'AutoShootGunController hooks installed', None)
+except Exception as ex:
+    BigWorld.logWarning(MOD_NAME, 'AutoShootGunController hook failed: ' + str(ex), None)
+
+
+# --------------------------------------------------------------------------
+# フリーカメラ自動復帰（v6）
+# BattleReplay.isControllingCamera が False = フリーカメラ（左クリックで切替）。
+# --------------------------------------------------------------------------
+
+_camera_restore_pending = False  # 直前に復帰を試みた（次の確認で戻っていなければ失敗）
+_camera_error_recorded = False   # 監視自体のエラーは 1 回だけ記録する
+
+
+def _check_camera():
+    global _camera_restore_pending
+    if not os.path.exists(BATCH_FLAG_PATH):
+        return
+    import BattleReplay
+    rc = BattleReplay.g_replayCtrl
+    if rc is None or not getattr(rc, 'isPlaying', False):
+        return
+    if not getattr(rc, 'isClientReady', True) or getattr(rc, 'isTimeWarpInProgress', False):
+        return
+    if getattr(rc, 'isControllingCamera', True):
+        if _camera_restore_pending:
+            _camera_restore_pending = False
+            _record('camera_restored')
+        return
+    if _camera_restore_pending:
+        # 前回戻したはずなのにまだフリーカメラ: 復帰できない
+        _record('camera_restore_failed')
+        _camera_restore_pending = False
+        return
+    _record('free_camera')
+    BigWorld.logInfo(MOD_NAME, 'free camera detected, restoring bound camera', None)
+    _camera_restore_pending = True
+    rc._BattleReplay__gotoBoundMode()
+
+
+def _tick():
+    global _camera_error_recorded
+    try:
+        _auto_tick()
+    except Exception:
+        pass
+    try:
+        _check_camera()
+    except Exception as ex:
+        if not _camera_error_recorded:
+            _camera_error_recorded = True
+            BigWorld.logWarning(MOD_NAME, 'camera check error: ' + str(ex), None)
+            _record('camera_check_error', error=str(ex))
+    BigWorld.callback(1.0, _tick)
+
+
+BigWorld.callback(1.0, _tick)
+BigWorld.logInfo(MOD_NAME, 'v6 auto-shoot / camera watcher started', None)

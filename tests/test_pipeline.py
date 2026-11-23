@@ -80,3 +80,29 @@ class TestRemuxFaststart:
 
         assert not src.with_suffix(".tmp.mp4").exists()
         assert src.read_bytes() == b"original"  # 元ファイルは上書きされない
+
+
+# ---- check_camera_events（フリーカメラ対策。2026-11-23） ----
+
+class TestCheckCameraEvents:
+    def test_no_camera_events_ok(self):
+        pipeline.check_camera_events({"events": [{"type": "shot", "epoch": 1.0}]})
+
+    def test_restored_free_camera_ok(self, capsys):
+        pipeline.check_camera_events({"events": [
+            {"type": "free_camera", "epoch": 1.0},
+            {"type": "camera_restored", "epoch": 2.0},
+        ]})
+        assert "1 回検出" in capsys.readouterr().out
+
+    def test_restore_failed_raises(self):
+        with pytest.raises(pipeline.FreeCameraError):
+            pipeline.check_camera_events({"events": [
+                {"type": "free_camera", "epoch": 1.0},
+                {"type": "camera_restore_failed", "epoch": 2.0},
+            ]})
+
+    def test_watcher_error_only_warns(self, capsys):
+        # 監視自体のエラーでは録画を捨てない（全録画が捨てられるのを防ぐ）
+        pipeline.check_camera_events({"events": [{"type": "camera_check_error", "epoch": 1.0}]})
+        assert "警告" in capsys.readouterr().out

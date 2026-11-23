@@ -48,6 +48,29 @@ MIN_AUDIO_BITRATE = 10_000
 # mod (mod_shot_logger) のイベント出力先。次のバトルで上書きされるため
 # 録画ごとに <recording>.events.json へスナップショットする
 SHOT_EVENTS_PATH = wot_dir() / "shot_events.json"
+# 録画中だけ置くフラグ。mod はこれがあるときだけフリーカメラを追従カメラに戻す
+# （手動でリプレイを見るときのフリーカメラは妨げない）
+RECORDING_FLAG_PATH = wot_dir() / "replay2video_recording.flag"
+
+
+class FreeCameraError(RuntimeError):
+    """録画中にフリーカメラになり、mod が追従カメラに戻せなかった（その1本だけ捨てる）。"""
+
+
+def check_camera_events(data: dict) -> None:
+    """
+    mod のカメラ監視イベントを確認する。復帰に失敗していれば FreeCameraError。
+
+    free_camera → camera_restored は自動で戻せたので問題なし（件数だけ表示する）。
+    """
+    events = data.get("events", [])
+    restored = sum(1 for e in events if e.get("type") == "camera_restored")
+    if restored:
+        print(f"  フリーカメラを {restored} 回検出し、追従カメラに戻しました")
+    if any(e.get("type") == "camera_check_error" for e in events):
+        print("  警告: mod のカメラ監視でエラーが発生しました（フリーカメラ対策が効いていない可能性）")
+    if any(e.get("type") == "camera_restore_failed" for e in events):
+        raise FreeCameraError("録画中にフリーカメラになり、追従カメラに戻せませんでした")
 
 
 def _audio_bitrate(video_path: Path) -> int | None:
@@ -174,6 +197,7 @@ def record_replay(replay_path: Path) -> Path:
     wot_proc, launched_at = launch_replay(replay_path)
 
     try:
+        RECORDING_FLAG_PATH.touch()
         print("[2/5] リプレイ開始を待機中...")
         battle_log_offset = wait_for_replay_start(launched_at, timeout=300)
         if not battle_log_offset:
@@ -219,6 +243,7 @@ def record_replay(replay_path: Path) -> Path:
         stop_recording(rec_client, out_path)
     finally:
         kill_wot()
+        RECORDING_FLAG_PATH.unlink(missing_ok=True)
 
     print("リムックス中（seekable 化）...")
     _remux_faststart(out_path)
@@ -395,6 +420,15 @@ def process_replay(replay_path: Path) -> Path:
     """
     replay_path = Path(replay_path)
     recording = record_replay(replay_path)
+
+    events_path = recording.with_suffix(".events.json")
+    if events_path.exists():
+        try:
+            check_camera_events(json.loads(events_path.read_text(encoding="utf-8")))
+        except FreeCameraError:
+            # 未処理扱いのまま（processed.json に載らない）なので次のバッチで録り直す
+            recording.unlink(missing_ok=True)
+            raise
 
     shorts_path = make_highlight_shorts(recording)
     if shorts_path is None:
