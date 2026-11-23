@@ -87,3 +87,11 @@ youtube:
     privacy: "unlisted"       # unlisted / public / private
     max_per_run: 3
     title_prefix: "【ノーカット】"
+
+title_research:              # 他チャンネルの人気 WoT Shorts タイトルを収集（src/collect_titles.py、将来の few-shot 用）
+  enabled: true               # upload_daily.bat がアップロード後に実行。台帳は output/popular_titles.json
+  queries: ["World of Tanks #shorts", "WoT shorts", "ワールドオブタンクス #shorts"]  # 1語 = 100 unit（アップロードと日次クォータ共用）
+  published_within_days: 30
+  min_views: 10000
+  max_duration_sec: 180
+  interval_hours: 20
