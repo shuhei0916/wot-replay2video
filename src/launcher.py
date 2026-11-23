@@ -67,7 +67,10 @@ def _wot_pids() -> set[int]:
     """実行中の WorldOfTanks.exe の PID 一覧を返す。"""
     result = subprocess.run(
         ["tasklist", "/fi", "imagename eq WorldOfTanks.exe", "/fo", "csv", "/nh"],
-        capture_output=True, text=True,
+        # 該当なしのときは日本語メッセージが出る。コンソールのコードページ次第で
+        # UTF-8 / cp932 のどちらにもなるので、読めない文字は置換して無視する
+        # （必要なのは ASCII のイメージ名と PID だけ）
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     pids = set()
     for line in result.stdout.splitlines():
