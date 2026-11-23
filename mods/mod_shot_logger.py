@@ -321,14 +321,46 @@ except Exception as ex:
 
 _camera_restore_pending = False  # 直前に復帰を試みた（次の確認で戻っていなければ失敗）
 _camera_error_recorded = False   # 監視自体のエラーは 1 回だけ記録する
+_last_camera_state = None        # 診断用: 前回記録したカメラ状態
+_camera_fail_ticks = 0           # 演出中以外で戻せなかった連続秒数
+CAMERA_FAIL_TICKS = 5            # これだけ続けて戻せなければ失敗とする
+PREBATTLE_HIGHLIGHTS_MODE = 'prebattleHighlights'  # CTRL_MODE_NAME.PREBATTLE_HIGHLIGHTS
+
+
+def _record_camera_state(rc):
+    """診断用: リプレイ制御とカメラの状態が変わったときだけ camera_state を記録する。"""
+    global _last_camera_state
+    mode = None
+    try:
+        mode = BigWorld.player().inputHandler.ctrlModeName
+    except Exception:
+        pass
+    recorded = None
+    try:
+        recorded = rc.getRecordedControlMode()
+    except Exception:
+        pass
+    state = (bool(getattr(rc, 'isPlaying', None)),
+             bool(getattr(rc, 'isClientReady', None)),
+             bool(getattr(rc, 'isTimeWarpInProgress', None)),
+             getattr(rc, 'isControllingCamera', None),
+             mode, recorded)
+    # スナイパー⇔アーケードの切替（mode）は頻繁なので、変化の判定からは外す
+    key = state[:4] + (state[5],)
+    if key != _last_camera_state:
+        _last_camera_state = key
+        _record('camera_state', playing=state[0], ready=state[1], warp=state[2],
+                bound=state[3], mode=state[4], recorded=state[5])
 
 
 def _check_camera():
-    global _camera_restore_pending
+    global _camera_restore_pending, _camera_fail_ticks
     if not os.path.exists(BATCH_FLAG_PATH):
         return
     import BattleReplay
     rc = BattleReplay.g_replayCtrl
+    if rc is not None:
+        _record_camera_state(rc)
     if rc is None or not getattr(rc, 'isPlaying', False):
         return
     if not getattr(rc, 'isClientReady', True) or getattr(rc, 'isTimeWarpInProgress', False):
@@ -336,16 +368,27 @@ def _check_camera():
     if getattr(rc, 'isControllingCamera', True):
         if _camera_restore_pending:
             _camera_restore_pending = False
+            _camera_fail_ticks = 0
             _record('camera_restored')
         return
-    if _camera_restore_pending:
-        # 前回戻したはずなのにまだフリーカメラ: 復帰できない
-        _record('camera_restore_failed')
-        _camera_restore_pending = False
+    if not _camera_restore_pending:
+        _camera_restore_pending = True
+        _camera_fail_ticks = 0
+        _record('free_camera')
+        BigWorld.logInfo(MOD_NAME, 'free camera detected, restoring bound camera', None)
+    # 録画者側で開幕ハイライト演出 (prebattleHighlights) 中は、ゲーム自身が
+    # onControlModeChanged で追従を外すので戻せない。演出が終わるまで待ち、
+    # 失敗には数えない（2026-11-23 SuperPershing で確認）。__gotoBoundMode は
+    # 呼ぶたびに画面へ通知を出すので、演出中は呼ばない
+    try:
+        recorded = rc.getRecordedControlMode()
+    except Exception:
+        recorded = None
+    if recorded == PREBATTLE_HIGHLIGHTS_MODE:
         return
-    _record('free_camera')
-    BigWorld.logInfo(MOD_NAME, 'free camera detected, restoring bound camera', None)
-    _camera_restore_pending = True
+    _camera_fail_ticks += 1
+    if _camera_fail_ticks == CAMERA_FAIL_TICKS:
+        _record('camera_restore_failed', recorded=recorded)
     rc._BattleReplay__gotoBoundMode()
 
 
