@@ -104,8 +104,20 @@ def _collect_from_web() -> None:
         print(f"警告: Web リプレイ収集に失敗しました（バッチは続行）: {e}")
 
 
+def _prune_old_replays() -> None:
+    """再生できない旧バージョンのリプレイをごみ箱へ送る（replays.prune.enabled の PC のみ）。"""
+    from src.prune_replays import prune, prune_enabled
+    if not prune_enabled():
+        return
+    try:
+        prune()
+    except Exception as e:
+        print(f"警告: 旧リプレイの整理に失敗しました（バッチは続行）: {e}")
+
+
 if __name__ == "__main__":
     print(f"ログ: {_start_logging()}")
+    _prune_old_replays()
     _collect_from_web()
     replays = collect_replays()
     if replays:

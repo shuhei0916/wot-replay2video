@@ -142,14 +142,27 @@ def fit_title(title: str, max_len: int = MAX_TITLE_LEN) -> str:
     return TITLE_SEPARATOR.join(parts)[:max_len]
 
 
+MIN_KILLS_IN_TITLE = 4  # これ未満のキル数はアピールにならないのでタイトルに出さない（2026-11-24）
+
+
+def format_damage(damage: int) -> str:
+    """
+    ダメージの簡易表記: 1,000 未満はそのまま、以上は 0.1k 単位で切り捨て。
+    例: 974 → '974', 2047 → '2k', 4560 → '4.5k'（切り上げると実際より盛って見えるため切り捨て）
+    """
+    if damage < 1000:
+        return str(damage)
+    return f"{damage // 100 / 10:g}k"
+
+
 def generate_title(info: "BattleInfo", lang: str = "ja") -> str:
     """
     BattleInfo からショート動画用タイトルを生成する（lang: "ja" / "en"）。
 
-    形式: 「タンク名 | キル数 | ダメージ数 | 勲章（あれば）」（2026-07-17 方針）。
+    形式: 「タンク名 | ダメージ（簡易表記） | キル数（4キル以上のみ） | 勲章（あれば）」
+    例: 「Leopard 1 | 4.5k Damage | 4kill」（2026-11-24 方針。旧: 車両, キル, ダメ）。
     区切りは " | "（カンマだと数字の桁区切りと紛れるため。2026-11-13）。
-    LLM は使わないシンプルな固定テンプレート。
-    0 キルのときはキル数項目を省く（2026-07-20 方針）。
+    LLM は使わないシンプルな固定テンプレート（LLM 版は 2026-11-24 に比較して見送り）。
     100 文字を超える場合は末尾の勲章から省く（fit_title）。
     車両名はクライアント収録の公式名（英字）なので言語共通。
     """
@@ -157,15 +170,12 @@ def generate_title(info: "BattleInfo", lang: str = "ja") -> str:
 
     vehicle = _vehicle_display_name(info.player_vehicle)
     s = info.player_stats
-    parts = [vehicle]
+    damage = format_damage(s.damage_dealt)
+    show_kills = s.kills >= MIN_KILLS_IN_TITLE
     if lang == "en":
-        if s.kills > 0:
-            parts.append(f"{s.kills} kill" + ("s" if s.kills > 1 else ""))
-        parts.append(f"{s.damage_dealt:,} damage")
+        parts = [vehicle, f"{damage} Damage"] + ([f"{s.kills}kill"] if show_kills else [])
     else:
-        if s.kills > 0:
-            parts.append(f"{s.kills}キル")
-        parts.append(f"{s.damage_dealt:,}ダメージ")
+        parts = [vehicle, f"{damage}ダメージ"] + ([f"{s.kills}キル"] if show_kills else [])
     parts += notable_medals(s.achievements, lang=lang)
     return fit_title(TITLE_SEPARATOR.join(parts))
 

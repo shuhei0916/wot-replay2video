@@ -10,6 +10,9 @@ wot:
 
 replays:
   dir: "G:\\path\\to\\replays"            # 処理対象リプレイの置き場（Google Drive 同期フォルダ等）
+  prune:                     # 現行クライアントより古い（再生不能な）リプレイを録画前にごみ箱へ送る（src/prune_replays.py）
+    enabled: false              # 佐野のように Drive 同期フォルダだと Drive からも消えるので既定は無効
+                             # 戦績は output/replay_archive.jsonl に残す。web.dir も対象
 
 batch:
   filter_enabled: true       # 録画前に戦闘結果で「見せ場のある試合」だけに絞る
