@@ -53,6 +53,16 @@ SHOT_EVENTS_PATH = wot_dir() / "shot_events.json"
 RECORDING_FLAG_PATH = wot_dir() / "replay2video_recording.flag"
 
 
+class ModNotLoadedError(RecordingEnvironmentError):
+    """
+    録画中に mod のイベントが1件も出なかった（mod が読み込まれていない）。
+    以降の録画も同じになるのでバッチは中断する。録画は捨てて投稿に回さない。
+
+    バッチ録画中の mod はカメラ監視で必ず camera_state を記録するため、
+    正常なら shot_events.json は必ずできる（射撃・被弾が0でも）。
+    """
+
+
 class FreeCameraError(RuntimeError):
     """録画中にフリーカメラになり、mod が追従カメラに戻せなかった（その1本だけ捨てる）。"""
 
@@ -422,6 +432,14 @@ def process_replay(replay_path: Path) -> Path:
     recording = record_replay(replay_path)
 
     events_path = recording.with_suffix(".events.json")
+    if not events_path.exists() and load_config().get("recording", {}).get("require_mod", True):
+        # 未処理扱いのまま（processed.json に載らない）なので mod を直せば次のバッチで録り直す
+        recording.unlink(missing_ok=True)
+        recording.with_suffix(".meta.json").unlink(missing_ok=True)
+        raise ModNotLoadedError(
+            "録画中に mod のイベントが記録されませんでした（mod が読み込まれていない）。"
+            "録画は破棄しました。python mods/deploy_mod.py で配置を確認してください"
+        )
     if events_path.exists():
         try:
             check_camera_events(json.loads(events_path.read_text(encoding="utf-8")))

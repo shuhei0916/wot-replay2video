@@ -3,6 +3,7 @@
 
 バッチ録画の前に以下を検査し、一晩分の録画を無駄にする事故を防ぐ:
   1. ディスク空き容量
+  1b. mod の配置（未配置・古ければ自動配置）
   2. OBS が起動しているか（起動していなければ自動起動）
   3. デスクトップ音声ソースの設定（ミュート・音量・録画トラック割り当て）
   4. 画面キャプチャソースの存在
@@ -15,6 +16,7 @@
 
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -202,20 +204,62 @@ def test_recording(client) -> list[str]:
     return problems
 
 
-def check_mod_deployed() -> None:
+MODS_DIR = Path(__file__).parent.parent / "mods"
+# mods/ のソース → res_mods/<version>/scripts/client/ に置かれる .pyc（deploy_mod.py と同じ対応）
+MOD_FILES = {"game_bootstrap.py": "game.pyc", "mod_shot_logger.py": "mod_shot_logger.pyc"}
+
+
+def mod_required() -> bool:
+    """mod が無いとき録画を止めるか（recording.require_mod、既定 true）。"""
+    return bool(load_config().get("recording", {}).get("require_mod", True))
+
+
+def mod_deploy_reason(dest_dir: Path, mods_dir: Path = MODS_DIR) -> str | None:
     """
-    mod (mod_shot_logger) が現行クライアントバージョンの res_mods に
-    配置されているか確認する。未配置でも CV 検出で動くため警告のみ。
+    mod の配置し直しが必要なら理由を返す（不要なら None）。
+    - .pyc が無い（クライアント更新で res_mods のバージョンフォルダが変わった等）
+    - ソースの方が新しい（mod を更新したのに配置し忘れた）
+    """
+    for src, out in MOD_FILES.items():
+        pyc = dest_dir / out
+        if not pyc.exists():
+            return f"{out} が未配置"
+        if (mods_dir / src).stat().st_mtime > pyc.stat().st_mtime:
+            return f"{src} が配置済みの {out} より新しい"
+    return None
+
+
+def ensure_mod_deployed() -> list[str]:
+    """
+    mod (mod_shot_logger) が現行クライアントの res_mods に最新の状態で置かれているか
+    確認し、必要なら deploy_mod.py で自動配置する。直せなければ問題を返す。
+
+    2026-11-24: クライアントが 2.4.2.0 に更新されたのに mod が未配置のまま 8 本録画され、
+    撃破後打ち切り・フリーカメラ復帰・mod ベースのハイライト検出がすべて無効だった
+    （当時は警告 1 行のみで気づけなかった）。
     """
     try:
         version = wot_client_version()
     except (OSError, RuntimeError) as e:
-        print(f"[warn] クライアントバージョンを確認できません: {e}")
-        return
-    pyc = wot_dir() / "res_mods" / version / "scripts" / "client" / "mod_shot_logger.pyc"
-    if not pyc.exists():
-        print(f"[warn] mod 未配置（v{version}）。射撃イベントは CV 検出になります。"
-              "配置するには: python mods/deploy_mod.py")
+        return [f"クライアントバージョンを確認できません（mod の配置を検査できない）: {e}"]
+    dest_dir = wot_dir() / "res_mods" / version / "scripts" / "client"
+    reason = mod_deploy_reason(dest_dir)
+    if reason is None:
+        print(f"mod 配置 OK（v{version}）")
+        return []
+
+    print(f"mod を配置します（v{version}、{reason}）...")
+    r = subprocess.run(
+        [sys.executable, str(MODS_DIR / "deploy_mod.py")],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    print((r.stdout or "").rstrip())
+    reason = mod_deploy_reason(dest_dir)
+    if r.returncode == 0 and reason is None:
+        print("[OK] mod を自動配置しました")
+        return []
+    return [f"mod の自動配置に失敗しました（{reason or 'deploy_mod.py が異常終了'}）。"
+            f"手動で python mods/deploy_mod.py を実行してください\n{(r.stderr or '').strip()}"]
 
 
 def run_preflight() -> bool:
@@ -230,7 +274,14 @@ def run_preflight() -> bool:
             print(f"[NG] {p}")
         return False
 
-    check_mod_deployed()
+    mod_problems = ensure_mod_deployed()
+    if mod_problems:
+        if mod_required():
+            for p in mod_problems:
+                print(f"[NG] {p}")
+            return False
+        for p in mod_problems:
+            print(f"[warn] {p}（recording.require_mod=false のため続行。CV 検出になります）")
     try:
         client = ensure_obs_running()
     except RuntimeError as e:

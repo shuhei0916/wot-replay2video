@@ -42,6 +42,8 @@ recording:
     presses: 2             # 送信回数（2回 = +20秒。押しすぎると戦闘序盤に食い込む）
     interval_sec: 1.2
     delay_sec: 5           # ロード完了(ReplayBattleSpace)検出からキー送信までの待ち
+  require_mod: true          # mod（射撃・撃破・カメラ監視の記録）が無い録画を許さない: プリフライトで自動配置し、
+                             # 録画中にイベントが出なければ録画を捨ててバッチを止める（false: CV 検出で続行）
   death_cutoff:            # 自車撃破後、grace_sec 経過で録画を打ち切る（mod の death イベント使用）
     enabled: true
     grace_sec: 20
