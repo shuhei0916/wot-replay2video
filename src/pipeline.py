@@ -418,6 +418,19 @@ def _delete_raw_if_longform_disabled(recording: Path, shorts_stem: str) -> None:
     recording.unlink(missing_ok=True)
 
 
+def _print_combat_check(replay_path: Path, events_path: Path) -> None:
+    """mod の集計（射撃・命中・与ダメ・撃破）を戦闘結果と並べて表示する。失敗しても続行。"""
+    try:
+        from src.detect_mod_events import combat_summary
+        m = combat_summary(json.loads(events_path.read_text(encoding="utf-8")))
+        s = parse_replay(replay_path).player_stats
+        print(f"  mod の記録: 射撃 {m['shots']}（結果 {s.shots}）/ 命中 {m['hits']}"
+              f"（結果 {s.direct_hits}、うち非貫通 {m['no_damage_hits']}）/ 与ダメ {m['damage']}"
+              f"（結果 {s.damage_dealt}）/ 撃破 {m['kills']}（結果 {s.kills}）")
+    except Exception as e:
+        print(f"  mod の記録と戦闘結果の照合をスキップ: {e}")
+
+
 def process_replay(replay_path: Path) -> Path:
     """
     1本のリプレイを録画 → Shorts 生成 → アップロードまで処理する。
@@ -441,6 +454,7 @@ def process_replay(replay_path: Path) -> Path:
             "録画は破棄しました。python mods/deploy_mod.py で配置を確認してください"
         )
     if events_path.exists():
+        _print_combat_check(replay_path, events_path)
         try:
             check_camera_events(json.loads(events_path.read_text(encoding="utf-8")))
         except FreeCameraError:

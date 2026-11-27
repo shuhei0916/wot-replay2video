@@ -193,3 +193,20 @@ def load_mod_events(
         return None
     events = convert_events(data, rec_start, dynamic_pacing=dynamic_pacing)
     return events or None
+
+
+def combat_summary(data: dict) -> dict:
+    """
+    mod v7 の記録から射撃・命中・与ダメージを集計する（戦闘結果との照合用）。
+    非貫通は hit_dealt のうち damage_factor が 0 のもの。
+    """
+    events = data.get("events", [])
+    dealt = [e for e in events if e.get("type") == "damage_dealt"]
+    hits = [e for e in events if e.get("type") == "hit_dealt"]
+    return {
+        "shots": sum(1 for e in events if e.get("type") == "shot"),
+        "hits": len(hits),
+        "no_damage_hits": sum(1 for e in hits if not e.get("damage_factor")),
+        "damage": sum(e.get("damage", 0) for e in dealt),
+        "kills": sum(1 for e in dealt if e.get("killed")),
+    }

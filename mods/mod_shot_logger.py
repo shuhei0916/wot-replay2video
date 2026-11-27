@@ -2,7 +2,7 @@
 # WoT の組み込み Python は 2.7。py2.7 でコンパイルした .pyc を
 # res_mods/<version>/scripts/client/ に配置する（ソース .py は無視される）。
 """
-mod_shot_logger v6 - リプレイ再生中の射撃・被弾イベントを shot_events.json に記録する。
+mod_shot_logger v7 - リプレイ再生中の射撃・被弾・与ダメージイベントを shot_events.json に記録する。
 
 設計:
 - 各イベントに壁時計時刻 (epoch) を記録する。録画開始時刻(パイプライン側が
@@ -19,6 +19,17 @@ mod_shot_logger v6 - リプレイ再生中の射撃・被弾イベントを shot
   満タンHP（damage_pct 計算用）は self.maxHealth /
   self.typeDescriptor.maxHealth を試し、両方失敗しても hit_taken の記録
   自体（撃ち合い判定用）は継続する。
+- 与ダメージ・命中の記録（v7、2026-11-27）: ハイライトを「当たった射撃」で選べるように。
+  クライアント 2.4.2.0 の引数（scripts.pkg の co_varnames で確認）:
+    Vehicle.onHealthChanged(newHealth, oldHealth, attackerID, attackReasonID, attackReasonExtID)
+    Vehicle.showDamageFromShot(attackerID, hitPoints, effectsIndex, prefabEffIndex,
+                               damage, damageFactor, lastMaterialIsShield, ...)
+  - damage_dealt: 自分の攻撃で敵の HP が減った（target, damage, killed, reason）
+  - hit_dealt: 自分の弾が敵に当たった（damage_factor=0 なら非貫通・跳弾）
+  2026-11-27 実機確認: Chi-Go の1戦で shot 13 / hit_dealt 11（うち非貫通2）/ damage_dealt
+  合計 2548・撃破2 が戦闘結果と完全一致。attackReasonID は 0=射撃、2=体当たり。
+  戦果リボン（PlayerAvatar.onBattleEvents）も狙ったが、Avatar の遅延フック自体が
+  張れない（既存の onArenaPeriodChange と同じく gave up）ため不採用
 - PlayerAvatar.onArenaPeriodChange フック: バトル開始 (period=3) の記録。
   personality 読み込み時点では Avatar モジュールが未初期化のため、
   BigWorld.callback で遅延リトライして張る。
@@ -75,7 +86,7 @@ def _record(kind, **extra):
 import BigWorld  # noqa: E402
 
 _write()  # ロード確認用の初期書き出し
-BigWorld.logInfo(MOD_NAME, 'v6 loaded. output -> ' + OUTPUT_PATH, None)
+BigWorld.logInfo(MOD_NAME, 'v7 loaded. output -> ' + OUTPUT_PATH, None)
 
 
 # --------------------------------------------------------------------------
@@ -134,6 +145,17 @@ try:
         try:
             player = BigWorld.player()
             pid = getattr(player, 'playerVehicleID', None)
+            if (pid is not None and getattr(self, 'id', None) != pid
+                    and len(args) >= 3 and args[2] == pid):
+                # 自分の攻撃で敵の HP が減った（v7）
+                new_h, old_h = args[0], args[1]
+                if isinstance(new_h, (int, float)) and isinstance(old_h, (int, float)):
+                    dmg = old_h - max(new_h, 0)
+                    if dmg > 0:
+                        extra = {'target': self.id, 'damage': dmg, 'killed': new_h <= 0}
+                        if len(args) >= 4:
+                            extra['reason'] = args[3]
+                        _record('damage_dealt', **extra)
             if pid is not None and getattr(self, 'id', None) == pid and args:
                 new_health = args[0]
                 if isinstance(new_health, (int, float)):
@@ -160,6 +182,34 @@ try:
     BigWorld.logInfo(MOD_NAME, 'Vehicle.onHealthChanged hook installed', None)
 except Exception as ex:
     BigWorld.logWarning(MOD_NAME, 'health hook failed: ' + str(ex), None)
+
+
+# --------------------------------------------------------------------------
+# Vehicle.showDamageFromShot（v7）: 自分の弾が敵に当たった（非貫通・跳弾も含む）
+# --------------------------------------------------------------------------
+
+try:
+    import Vehicle as _VehicleS
+
+    _orig_showDamageFromShot = _VehicleS.Vehicle.showDamageFromShot
+
+    def _hooked_showDamageFromShot(self, *args, **kwargs):
+        try:
+            pid = getattr(BigWorld.player(), 'playerVehicleID', None)
+            if pid is not None and args and args[0] == pid and getattr(self, 'id', None) != pid:
+                extra = {'target': self.id}
+                if len(args) >= 6:
+                    extra['damage'] = args[4]
+                    extra['damage_factor'] = args[5]
+                _record('hit_dealt', **extra)
+        except Exception as ex:
+            BigWorld.logWarning(MOD_NAME, 'shot-damage hook error: ' + str(ex), None)
+        return _orig_showDamageFromShot(self, *args, **kwargs)
+
+    _VehicleS.Vehicle.showDamageFromShot = _hooked_showDamageFromShot
+    BigWorld.logInfo(MOD_NAME, 'Vehicle.showDamageFromShot hook installed', None)
+except Exception as ex:
+    BigWorld.logWarning(MOD_NAME, 'shot-damage hook failed: ' + str(ex), None)
 
 
 # --------------------------------------------------------------------------
@@ -409,4 +459,4 @@ def _tick():
 
 
 BigWorld.callback(1.0, _tick)
-BigWorld.logInfo(MOD_NAME, 'v6 auto-shoot / camera watcher started', None)
+BigWorld.logInfo(MOD_NAME, 'v7 auto-shoot / camera watcher started', None)

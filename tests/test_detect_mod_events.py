@@ -322,3 +322,29 @@ class TestLoadModEvents:
             json.dumps({"rec_start_epoch": REC_START}), encoding="utf-8")
         rec.with_suffix(".events.json").write_text(json.dumps({"events": []}), encoding="utf-8")
         assert load_mod_events(rec) is None
+
+
+# ---- mod v7: 与ダメ・命中の集計（2026-11-27） ----
+
+def test_combat_summary():
+    from src.detect_mod_events import combat_summary
+    data = {"events": [
+        {"type": "shot"}, {"type": "shot"}, {"type": "shot"},
+        {"type": "hit_dealt", "damage": 270, "damage_factor": 71},
+        {"type": "damage_dealt", "damage": 270, "killed": False},
+        {"type": "hit_dealt", "damage": 0, "damage_factor": 0},   # 非貫通
+        {"type": "damage_dealt", "damage": 151, "killed": True, "reason": 2},  # 体当たり
+        {"type": "hit_taken", "damage": 300},
+    ]}
+    assert combat_summary(data) == {"shots": 3, "hits": 2, "no_damage_hits": 1, "damage": 421, "kills": 1}
+
+
+def test_combat_summary_matches_real_battle():
+    # 実機記録（Chi-Go / Ensk、戦闘結果: 射撃13・命中11・与ダメ2548・撃破2）
+    import json
+    from pathlib import Path
+    from src.detect_mod_events import combat_summary
+    p = Path(__file__).parent / "fixtures" / "mod_v7_chigo_ensk.events.json"
+    m = combat_summary(json.loads(p.read_text(encoding="utf-8")))
+    assert (m["shots"], m["hits"], m["damage"], m["kills"]) == (13, 11, 2548, 2)
+    assert m["no_damage_hits"] == 2
