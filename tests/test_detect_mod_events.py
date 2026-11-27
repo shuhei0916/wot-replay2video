@@ -336,7 +336,8 @@ def test_combat_summary():
         {"type": "damage_dealt", "damage": 151, "killed": True, "reason": 2},  # 体当たり
         {"type": "hit_taken", "damage": 300},
     ]}
-    assert combat_summary(data) == {"shots": 3, "hits": 2, "no_damage_hits": 1, "damage": 421, "kills": 1}
+    assert combat_summary(data) == {"shots": 3, "hits": 2, "no_damage_hits": 1, "damage": 421, "kills": 1,
+                                    "blocked_hits": 0}
 
 
 def test_combat_summary_matches_real_battle():
@@ -430,3 +431,24 @@ class TestOutcomeScoring:
         assert kinds.count("shot_mod_nopen") == 2
         assert kinds.count("shot_mod_miss") == 2
         assert kinds.count("shot_mod_damage") == 8
+
+
+def test_combat_summary_v8_real_battle():
+    # mod v8 の実機記録（T29 / Karelia）。戦闘結果: 射撃18・命中16（貫通15+非貫通1）・
+    # 与ダメ4605・撃破2・被命中8（うち弾いた5）・撃破された車両19。
+    # mod は貫通を1発（338）取りこぼす: 視認外の敵への射撃（ブラインドショット）とみられる
+    import json
+    from pathlib import Path
+    from src.detect_mod_events import combat_summary
+    p = Path(__file__).parent / "fixtures" / "mod_v8_t29_karelia.events.json"
+    data = json.loads(p.read_text(encoding="utf-8"))
+    m = combat_summary(data)
+    assert (m["shots"], m["hits"], m["no_damage_hits"], m["kills"]) == (18, 15, 1, 2)
+    assert m["damage"] == 4605 - 338
+    assert m["blocked_hits"] == 5
+    events = data["events"]
+    assert sum(1 for e in events if e["type"] == "hit_received") == 8
+    assert sum(1 for e in events if e["type"] == "vehicle_killed") == 19
+    info = next(e for e in events if e["type"] == "arena_info")
+    assert len(info["vehicles"]) == 30 and info["player_team"] in (1, 2)
+    assert len(data["others"]) > 0

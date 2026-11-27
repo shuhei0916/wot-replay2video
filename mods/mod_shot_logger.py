@@ -2,7 +2,7 @@
 # WoT の組み込み Python は 2.7。py2.7 でコンパイルした .pyc を
 # res_mods/<version>/scripts/client/ に配置する（ソース .py は無視される）。
 """
-mod_shot_logger v7 - リプレイ再生中の射撃・被弾・与ダメージイベントを shot_events.json に記録する。
+mod_shot_logger v8 - リプレイ再生中の射撃・被弾・与ダメージ・戦況を shot_events.json に記録する。
 
 設計:
 - 各イベントに壁時計時刻 (epoch) を記録する。録画開始時刻(パイプライン側が
@@ -30,6 +30,14 @@ mod_shot_logger v7 - リプレイ再生中の射撃・被弾・与ダメージ�
   合計 2548・撃破2 が戦闘結果と完全一致。attackReasonID は 0=射撃、2=体当たり。
   戦果リボン（PlayerAvatar.onBattleEvents）も狙ったが、Avatar の遅延フック自体が
   張れない（既存の onArenaPeriodChange と同じく gave up）ため不採用
+- 戦況の記録（v8、2026-11-28。見どころ曲線の「状況の高さ」・勲章の時刻特定・HPバーの
+  描き直し・意味のある移動の判定に使う）:
+  - hit_taken に attacker / reason / health / max_health を追加（自車 HP の推移と、誰に撃たれたか）
+  - hit_received: 自車に敵の弾が当たった（damage_factor=0 なら装甲で弾いた）
+  - damage_dealt に target_team / target_tier / target_class を追加（勲章の Tier・車種条件用）
+  - arena_info: 試合開始時に1回、全車両の team / tier / class / name と自チーム
+  - vehicle_killed: 全車両の撃破（キルログ。arena.onVehicleKilled）。残り台数の推移が分かる
+  - others: 自車以外で見えている車両の位置（2秒ごと [epoch, vid, x, z]）
 - PlayerAvatar.onArenaPeriodChange フック: バトル開始 (period=3) の記録。
   personality 読み込み時点では Avatar モジュールが未初期化のため、
   BigWorld.callback で遅延リトライして張る。
@@ -57,6 +65,7 @@ BATCH_FLAG_PATH = '__WOT_DIR__/replay2video_recording.flag'
 
 _events = []
 _positions = []  # [[epoch, x, z], ...] 自車のワールド座標（1秒ごと。長距離移動の検出用）
+_others = []     # [[epoch, vid, x, z], ...] 自車以外で見えている車両の位置（v8、2秒ごと）
 _arena_start_epoch = None
 _death_recorded = False
 _last_known_health = None  # 自前追跡する直前HP（onHealthChanged 間で引き継ぐ）
@@ -70,7 +79,8 @@ def _write():
         f = open(OUTPUT_PATH, 'w')
         json.dump({'arena_start_epoch': _arena_start_epoch,
                    'events': _events,
-                   'positions': _positions}, f)
+                   'positions': _positions,
+                   'others': _others}, f)
         f.close()
     except Exception:
         pass
@@ -86,7 +96,7 @@ def _record(kind, **extra):
 import BigWorld  # noqa: E402
 
 _write()  # ロード確認用の初期書き出し
-BigWorld.logInfo(MOD_NAME, 'v7 loaded. output -> ' + OUTPUT_PATH, None)
+BigWorld.logInfo(MOD_NAME, 'v8 loaded. output -> ' + OUTPUT_PATH, None)
 
 
 # --------------------------------------------------------------------------
@@ -112,6 +122,50 @@ try:
     BigWorld.logInfo(MOD_NAME, 'Vehicle.showShooting hook installed', None)
 except Exception as ex:
     BigWorld.logWarning(MOD_NAME, 'Vehicle hook failed: ' + str(ex), None)
+
+
+# --------------------------------------------------------------------------
+# 車両情報（v8）: arena.vehicles から team / tier / class / name を引く（キャッシュ）
+# --------------------------------------------------------------------------
+
+_CLASS_TAGS = ('lightTank', 'mediumTank', 'heavyTank', 'AT-SPG', 'SPG')
+_vehicle_info_cache = {}
+
+
+def _vehicle_info(vid):
+    """{'team', 'tier', 'class', 'name'}。取れない項目は入れない。"""
+    if vid in _vehicle_info_cache:
+        return _vehicle_info_cache[vid]
+    info = {}
+    try:
+        v = BigWorld.player().arena.vehicles.get(vid) or {}
+        if 'team' in v:
+            info['team'] = v['team']
+        if v.get('name'):
+            info['name'] = v['name']
+        vt = v.get('vehicleType')
+        if vt is not None:
+            info['tier'] = vt.type.level
+            tags = vt.type.tags
+            for c in _CLASS_TAGS:
+                if c in tags:
+                    info['class'] = c
+                    break
+            info['tank'] = vt.type.name
+    except Exception:
+        pass
+    if info:
+        _vehicle_info_cache[vid] = info
+    return info
+
+
+def _target_extra(vid):
+    info = _vehicle_info(vid)
+    out = {}
+    for k in ('team', 'tier', 'class'):
+        if k in info:
+            out['target_' + k] = info[k]
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -155,6 +209,7 @@ try:
                         extra = {'target': self.id, 'damage': dmg, 'killed': new_h <= 0}
                         if len(args) >= 4:
                             extra['reason'] = args[3]
+                        extra.update(_target_extra(self.id))
                         _record('damage_dealt', **extra)
             if pid is not None and getattr(self, 'id', None) == pid and args:
                 new_health = args[0]
@@ -165,9 +220,14 @@ try:
                     if prev is not None:
                         damage = prev - new_health
                         if damage > 0:
-                            extra = {'damage': damage}
+                            extra = {'damage': damage, 'health': new_health}
                             if max_h:
                                 extra['damage_pct'] = round(damage / max_h, 4)
+                                extra['max_health'] = max_h
+                            if len(args) >= 3:
+                                extra['attacker'] = args[2]
+                            if len(args) >= 4:
+                                extra['reason'] = args[3]
                             _record('hit_taken', **extra)
                     _last_known_health = new_health
                     if not _death_recorded and new_health <= 0:
@@ -202,6 +262,14 @@ try:
                     extra['damage'] = args[4]
                     extra['damage_factor'] = args[5]
                 _record('hit_dealt', **extra)
+            elif (pid is not None and args and getattr(self, 'id', None) == pid
+                  and args[0] != pid):
+                # 自車に敵の弾が当たった（v8）。damage_factor=0 なら装甲で弾いた
+                extra = {'attacker': args[0]}
+                if len(args) >= 6:
+                    extra['damage'] = args[4]
+                    extra['damage_factor'] = args[5]
+                _record('hit_received', **extra)
         except Exception as ex:
             BigWorld.logWarning(MOD_NAME, 'shot-damage hook error: ' + str(ex), None)
         return _orig_showDamageFromShot(self, *args, **kwargs)
@@ -280,6 +348,65 @@ def _sample_position():
 
 BigWorld.callback(POSITION_INTERVAL_SEC, _sample_position)
 BigWorld.logInfo(MOD_NAME, 'v5 position sampler started', None)
+
+
+# --------------------------------------------------------------------------
+# 戦況の監視（v8）: 試合の車両一覧、全車両の撃破（キルログ）、見えている車両の位置
+# --------------------------------------------------------------------------
+
+OTHERS_INTERVAL_SEC = 2.0
+_arena_hooked = None   # キルログを購読した arena（試合ごとに1回）
+
+
+def _on_vehicle_killed(*args):
+    # ClientArena.updateVehicleIsAlive が onVehicleKilled(victimID, killerID, equipmentID,
+    # reasonID, numVehiclesAffected) で発火する（2.4.2.0 の逆アセンブルで確認）。
+    # 引数が変わっても例外を出さないよう *args で受ける
+    try:
+        if not args:
+            return
+        target_id = args[0]
+        extra = {'target': target_id}
+        if len(args) >= 2:
+            extra['attacker'] = args[1]
+        if len(args) >= 4:
+            extra['reason'] = args[3]
+        extra.update(_target_extra(target_id))
+        _record('vehicle_killed', **extra)
+    except Exception as ex:
+        BigWorld.logWarning(MOD_NAME, 'kill feed error: ' + str(ex), None)
+
+
+def _watch_arena():
+    global _arena_hooked
+    try:
+        player = BigWorld.player()
+        arena = getattr(player, 'arena', None)
+        pid = getattr(player, 'playerVehicleID', None)
+        if arena is not None and pid is not None:
+            if _arena_hooked is not arena:
+                _arena_hooked = arena
+                arena.onVehicleKilled += _on_vehicle_killed
+                vehicles = {}
+                for vid in arena.vehicles.keys():
+                    vehicles[str(vid)] = _vehicle_info(vid)
+                _record('arena_info', player_vehicle=pid,
+                        player_team=_vehicle_info(pid).get('team'), vehicles=vehicles)
+                BigWorld.logInfo(MOD_NAME, 'arena watch started (%d vehicles)' % len(vehicles), None)
+            now = round(time.time(), 3)
+            for vid in arena.vehicles.keys():
+                if vid == pid:
+                    continue
+                v = BigWorld.entity(vid)
+                if v is None or not getattr(v, 'isAlive', lambda: False)():
+                    continue
+                _others.append([now, vid, round(v.position.x, 1), round(v.position.z, 1)])
+    except Exception:
+        pass  # ロビー・ロード中などは取れなくて当然
+    BigWorld.callback(OTHERS_INTERVAL_SEC, _watch_arena)
+
+
+BigWorld.callback(OTHERS_INTERVAL_SEC, _watch_arena)
 
 
 # --------------------------------------------------------------------------
@@ -459,4 +586,4 @@ def _tick():
 
 
 BigWorld.callback(1.0, _tick)
-BigWorld.logInfo(MOD_NAME, 'v7 auto-shoot / camera watcher started', None)
+BigWorld.logInfo(MOD_NAME, 'v8 auto-shoot / camera watcher started', None)

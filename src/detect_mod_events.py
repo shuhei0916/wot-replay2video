@@ -299,4 +299,7 @@ def combat_summary(data: dict) -> dict:
         "no_damage_hits": sum(1 for e in hits if not e.get("damage_factor")),
         "damage": sum(e.get("damage", 0) for e in dealt),
         "kills": sum(1 for e in dealt if e.get("killed")),
+        # v8: 自車への命中のうち装甲で弾いたもの
+        "blocked_hits": sum(1 for e in events
+                            if e.get("type") == "hit_received" and not e.get("damage_factor")),
     }
