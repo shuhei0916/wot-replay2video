@@ -5,8 +5,8 @@
 粗かった。mod が記録した被弾（v8 は被弾後の HP と最大 HP、v7 はダメージ量）と
 戦闘結果の最大 HP から HP の推移を作り、ffmpeg の drawbox / drawtext でくっきり描く。
 
-- 残り HP の割合で色が変わる（緑 → 黄 → 赤）
-- 削られた分は明るい色で残り、少し遅れて減る（ゲームの HP バー風）
+- 残り HP の割合で色が連続的に変わる（WoT の HUD から測った色のグラデーション）
+- 削られた分は明るい色で残り、0.25秒で縮む（ゲームの HP バー風）
 - 「975 / 1,480」の数値を出す
 - HUD のスケールを変えても座標を測り直す必要がない
 
@@ -22,14 +22,23 @@ BAR_H = 56
 BORDER = 4
 FONT = "C\\:/Windows/Fonts/bahnschrift.ttf"   # 数字が読みやすい等幅寄りのフォント
 FONT_SIZE = 40
-COLOR_BG = "black@0.55"
-COLOR_HIGH = "0x3fd16b"     # 50% 超
-COLOR_MID = "0xf2c230"      # 25〜50%
-COLOR_LOW = "0xe5484d"      # 25% 未満
+COLOR_BG = "black@0.85"     # ゲームの HP バーの空き部分（ほぼ不透明の黒）に合わせる
+# 残り HP の割合 → 色（WoT の HUD と同じグラデーション）。2026-11-28 に録画内のゲームの
+# HP バー（A-44, 最大1200）を残り HP ごとに切り出し、塗り部分の中央値 RGB を測った値。
+# 間は線形補間する（ゲームも緑 → 黄緑 → 黄 → 橙 → 赤 と連続的に変わる）
+HP_COLOR_STOPS = [
+    (1.000, (5, 89, 4)),
+    (0.747, (82, 88, 6)),
+    (0.674, (102, 88, 9)),
+    (0.603, (124, 87, 6)),
+    (0.378, (170, 69, 2)),
+    (0.158, (169, 29, 1)),
+    (0.000, (169, 29, 1)),
+]
 COLOR_DRAIN = "0xfff2d6@0.9"  # 削られた分（遅れて減る）
-DRAIN_DELAY_SEC = 0.25      # 被弾から減り始めるまで
-DRAIN_SEC = 0.5             # 減りきるまで
-DRAIN_STEPS = 6             # drawbox は時間で幅を変えられないので段階的に描く
+DRAIN_DELAY_SEC = 0.0       # 被弾から減り始めるまで
+DRAIN_SEC = 0.25            # 減りきるまで（2026-11-28: 0.25秒後から0.5秒 → すぐに0.25秒へ）
+DRAIN_STEPS = 5             # drawbox は時間で幅を変えられないので段階的に描く
 
 
 @dataclass
@@ -94,12 +103,15 @@ def hp_timeline_from_events(data: dict, rec_start: float, max_hp: float | None) 
     return HpTimeline(float(max_hp), changes)
 
 
-def _color(ratio: float) -> str:
-    if ratio > 0.5:
-        return COLOR_HIGH
-    if ratio >= 0.25:
-        return COLOR_MID
-    return COLOR_LOW
+def hp_color(ratio: float) -> str:
+    """残り HP の割合（0〜1）の色を ffmpeg の色指定（0xRRGGBB）で返す。"""
+    ratio = max(0.0, min(1.0, ratio))
+    for (r_hi, c_hi), (r_lo, c_lo) in zip(HP_COLOR_STOPS, HP_COLOR_STOPS[1:]):
+        if r_lo <= ratio <= r_hi:
+            k = 0.0 if r_hi == r_lo else (ratio - r_lo) / (r_hi - r_lo)
+            rgb = [round(lo + (hi - lo) * k) for lo, hi in zip(c_lo, c_hi)]
+            return "0x" + "".join(f"{v:02x}" for v in rgb)
+    return "0x" + "".join(f"{v:02x}" for v in HP_COLOR_STOPS[-1][1])
 
 
 def _fmt(v: float) -> str:
@@ -162,7 +174,7 @@ def build_hp_bar_filters(timeline: HpTimeline, clip_start: float, clip_dur: floa
         wh = width(hp)
         if wh > 0:
             f.append(f"drawbox=x={inner_x}:y={inner_y}:w={wh}:h={inner_h}:"
-                     f"color={_color(hp / m)}:t=fill:{win}")
+                     f"color={hp_color(hp / m)}:t=fill:{win}")
         f.append(f"drawtext=fontfile='{FONT}':text='{_fmt(hp)} / {_fmt(m)}':fontsize={FONT_SIZE}:"
                  f"fontcolor=white:borderw=3:bordercolor=black@0.8:"
                  f"x={x0}+({w}-text_w)/2:y={y0}+({BAR_H}-text_h)/2:{win}")

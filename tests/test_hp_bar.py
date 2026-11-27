@@ -5,11 +5,9 @@ from pathlib import Path
 
 from src.hp_bar import (
     COLOR_DRAIN,
-    COLOR_HIGH,
-    COLOR_LOW,
-    COLOR_MID,
     HpTimeline,
     build_hp_bar_filters,
+    hp_color,
     hp_timeline_from_events,
 )
 
@@ -60,7 +58,7 @@ class TestFilters:
         tl = HpTimeline(1000, [])
         f = build_hp_bar_filters(tl, 0.0, 8.0, DST)
         assert "text='1,000 / 1,000'" in f
-        assert f"color={COLOR_HIGH}" in f
+        assert f"color={hp_color(1.0)}" in f
         assert COLOR_DRAIN not in f
         assert "drawbox=x=103:y=300:w=874:h=56" in f   # 中央寄せの背景
 
@@ -70,18 +68,18 @@ class TestFilters:
         assert "text='1,000 / 1,000':" in f and "between(t,0.0,2.0)" in f
         assert "text='400 / 1,000':" in f and "between(t,2.0,6.0)" in f
         assert COLOR_DRAIN in f                       # 削られた分が遅れて減る
-        assert f"color={COLOR_MID}" in f              # 40% は黄
+        assert f"color={hp_color(0.4)}" in f
 
     def test_hit_before_clip_only_sets_start_value(self):
         tl = HpTimeline(1000, [(50.0, 200.0)])
         f = build_hp_bar_filters(tl, 103.0, 6.0, DST)
         assert "text='200 / 1,000'" in f and COLOR_DRAIN not in f
-        assert f"color={COLOR_LOW}" in f              # 20% は赤
+        assert f"color={hp_color(0.2)}" in f
 
     def test_zero_hp_draws_no_fill(self):
         f = build_hp_bar_filters(HpTimeline(1000, [(1.0, 0.0)]), 2.0, 3.0, DST)
         assert "text='0 / 1,000'" in f
-        assert COLOR_HIGH not in f and COLOR_MID not in f and COLOR_LOW not in f
+        assert ":w=0:" not in f and f"color={hp_color(0.0)}" not in f   # 塗りは描かない
 
 
 def test_build_filter_args_uses_rendered_bar_instead_of_hud():
@@ -90,3 +88,23 @@ def test_build_filter_args_uses_rendered_bar_instead_of_hud():
     args = build_filter_args(1920, 1080, hud, None, hp_bar="drawbox=x=1")
     assert args[0] == "-vf" and args[1].endswith(",drawbox=x=1")
     assert "crop=224:18" not in args[1]
+
+
+class TestHpColor:
+    def test_measured_stops(self):
+        assert hp_color(1.0) == "0x055904"     # 満タン: 緑
+        assert hp_color(0.603) == "0x7c5706"   # 6割: 黄〜橙
+        assert hp_color(0.158) == "0xa91d01"   # 1.6割: 赤
+        assert hp_color(0.0) == "0xa91d01"
+
+    def test_interpolates_between_stops(self):
+        mid = hp_color((1.0 + 0.747) / 2)
+        r, g = int(mid[2:4], 16), int(mid[4:6], 16)
+        assert 5 < r < 82 and 88 <= g <= 89
+
+    def test_clamped(self):
+        assert hp_color(1.5) == hp_color(1.0) and hp_color(-1) == hp_color(0.0)
+
+    def test_continuous_red_increases_as_hp_drops(self):
+        reds = [int(hp_color(r / 100)[2:4], 16) for r in range(100, 37, -5)]
+        assert reds == sorted(reds)
