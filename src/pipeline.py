@@ -346,6 +346,23 @@ def _load_heat_curve(recording_path: Path, replay_path: Path | None):
     return load_heat(recording_path, tank_id, duration)
 
 
+def _load_hp_timeline(recording_path: Path, replay_path: Path | None):
+    """
+    描き直す HP バー用の HP の推移（src.hp_bar）。shorts.hp_overlay.mode が "crop" なら
+    None（HUD の切り出しを使う）。最大 HP は戦闘結果の maxHealth（v8 の記録にもある）。
+    """
+    if (load_config().get("shorts", {}).get("hp_overlay") or {}).get("mode", "render") != "render":
+        return None
+    max_hp = None
+    if replay_path is not None:
+        try:
+            max_hp = parse_replay(replay_path).player_stats.max_health or None
+        except Exception:
+            pass
+    from src.hp_bar import load_hp_timeline
+    return load_hp_timeline(recording_path, max_hp)
+
+
 def make_highlight_shorts(recording_path: Path, replay_path: Path | None = None) -> Path | None:
     """
     録画からハイライトを検出して Shorts 動画を生成する。
@@ -365,7 +382,8 @@ def make_highlight_shorts(recording_path: Path, replay_path: Path | None = None)
     print(f"Shorts 生成中 → {shorts_path.name}")
     from src.minimap import load_positions
     make_shorts(recording_path, events, shorts_path, positions=load_positions(recording_path),
-                heat=_load_heat_curve(recording_path, replay_path))
+                heat=_load_heat_curve(recording_path, replay_path),
+                hp_timeline=_load_hp_timeline(recording_path, replay_path))
     return shorts_path
 
 

@@ -33,7 +33,8 @@ class PlayerStats:
     mark_of_mastery: int
     achievements: list[int] = field(default_factory=list)
     type_comp_descr: int = 0          # 車両ID（WN8 期待値表の IDNum）
-    dropped_capture_points: int = 0   # 防衛ポイント（WN8 の DEF 項）
+    dropped_capture_points: int = 0
+    max_health: int = 0               # 最大 HP（HP バーの描き直し用）   # 防衛ポイント（WN8 の DEF 項）
 
     @property
     def hit_rate(self) -> float:
@@ -212,6 +213,7 @@ def parse_replay(path: Path) -> BattleInfo:
         direct_hits=personal_entry["directEnemyHits"],
         survived=personal_entry["deathReason"] == -1,
         hp_remaining=personal_entry["health"],
+        max_health=personal_entry.get("maxHealth", 0),
         spotted=personal_entry["spotted"],
         damage_assisted_radio=personal_entry["damageAssistedRadio"],
         xp=personal_entry["xp"],

@@ -181,9 +181,13 @@ def build_filter_args(
     src_height: int,
     hp_overlay: dict | None = None,
     minimap: dict | None = None,
+    hp_bar: str | None = None,
 ) -> list[str]:
     """
     クリップ切り出し用の ffmpeg フィルタ引数を組み立てる。
+
+    hp_bar（src.hp_bar.build_hp_bar_filters の出力）があれば、HUD を切り出す代わりに
+    描き直した HP バーを重ねる（2026-11-28〜）。
 
     基本は中央 9:16 クロップ + 拡大。hp_overlay が指定されていれば、
     元フレーム左下 HUD の HP バー矩形（src）を切り出して縦動画上部
@@ -194,6 +198,9 @@ def build_filter_args(
     （src）を dst の位置に、クリップ内の start〜end 秒だけフェード付きで重ねる。
     """
     base = _center_crop_filter(src_width, src_height)
+    if hp_bar:
+        base = f"{base},{hp_bar}"
+        hp_overlay = None  # 描き直したバーを使うので HUD は切り出さない
     if hp_overlay is None and minimap is None:
         return ["-vf", base]
 
@@ -345,6 +352,7 @@ def clip_and_crop(
     src_height: int = 1080,
     hp_overlay: dict | None = None,
     minimap: dict | None = None,
+    hp_bar: str | None = None,
 ) -> Path:
     """
     動画の指定区間を切り出し、中央を 9:16 にクロップして保存する。
@@ -370,7 +378,7 @@ def clip_and_crop(
             "-ss", str(max(0, start)),
             "-i", str(video_path),
             "-t", str(duration),
-            *build_filter_args(src_width, src_height, hp_overlay, minimap),
+            *build_filter_args(src_width, src_height, hp_overlay, minimap, hp_bar),
             *VIDEO_ARGS,
             *AUDIO_ARGS,
             "-y",
@@ -388,6 +396,7 @@ def make_shorts(
     output_path: Path | None = None,
     positions: list[tuple[float, float, float]] | None = None,
     heat=None,
+    hp_timeline=None,
 ) -> Path:
     """
     ハイライトイベントから YouTube Shorts 動画を生成する。
@@ -499,8 +508,12 @@ def make_shorts(
                 "src": mm_cfg["src"], "dst": mm_cfg["first_shot"]["dst"],
                 "start": first_shot[1], "end": first_shot[2],
             }
+        hp_bar = None
+        if hp_overlay is not None and hp_timeline is not None:
+            from src.hp_bar import build_hp_bar_filters
+            hp_bar = build_hp_bar_filters(hp_timeline, start, duration, hp_overlay["dst"])
         clip_and_crop(video_path, start, duration, clip_out,
-                      hp_overlay=hp_overlay, minimap=minimap)
+                      hp_overlay=hp_overlay, minimap=minimap, hp_bar=hp_bar)
         clip_paths.append(clip_out)
         note = "（初弾マップ）" if minimap else ""
         kinds = ", ".join(e.event_type for e in scene.events) or "-"
