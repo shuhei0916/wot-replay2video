@@ -462,7 +462,8 @@ def _print_combat_check(replay_path: Path, events_path: Path) -> None:
         s = parse_replay(replay_path).player_stats
         print(f"  mod の記録: 射撃 {m['shots']}（結果 {s.shots}）/ 命中 {m['hits']}"
               f"（結果 {s.direct_hits}、うち非貫通 {m['no_damage_hits']}）/ 与ダメ {m['damage']}"
-              f"（結果 {s.damage_dealt}）/ 撃破 {m['kills']}（結果 {s.kills}）")
+              f"（結果 {s.damage_dealt}）/ 撃破 {m['kills']}（結果 {s.kills}）"
+              f" / 弾いた被弾 {m['blocked_hits']}")
     except Exception as e:
         print(f"  mod の記録と戦闘結果の照合をスキップ: {e}")
 

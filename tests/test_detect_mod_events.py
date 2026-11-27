@@ -336,7 +336,8 @@ def test_combat_summary():
         {"type": "damage_dealt", "damage": 151, "killed": True, "reason": 2},  # 体当たり
         {"type": "hit_taken", "damage": 300},
     ]}
-    assert combat_summary(data) == {"shots": 3, "hits": 2, "no_damage_hits": 1, "damage": 421, "kills": 1}
+    assert combat_summary(data) == {"shots": 3, "hits": 2, "no_damage_hits": 1, "damage": 421, "kills": 1,
+                                    "blocked_hits": 0}
 
 
 def test_combat_summary_matches_real_battle():
