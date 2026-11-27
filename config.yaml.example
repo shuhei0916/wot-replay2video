@@ -50,6 +50,9 @@ recording:
 
 shorts:
   max_total_sec: 150         # 1本の合計尺の上限（秒）。length_test が有効ならそちらが優先
+  heat:                      # 見どころ曲線（src/heat.py）: mod v7 の記録がある録画はしきい値超えの区間を切り出す
+    enabled: true            # false で従来の場面単位の選択に戻す。尺の上限（max_total_sec / length_test）は
+                             # 上限として効く（超えるならしきい値を上げて絞る）
   length_test:               # 尺の A/B テスト（2026-11-27〜）: 録画ファイル名のハッシュで variants から1つ選ぶ
     enabled: true            # 視聴は尺に関係なく16〜26秒で離脱していたため、短尺と従来尺を同時期に混ぜて比べる
     variants: [40, 150]      # 結果は週次レポートの「尺別の成績」で見る

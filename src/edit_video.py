@@ -359,9 +359,13 @@ def make_shorts(
     events: list[HighlightEvent],
     output_path: Path | None = None,
     positions: list[tuple[float, float, float]] | None = None,
+    heat=None,
 ) -> Path:
     """
     ハイライトイベントから YouTube Shorts 動画を生成する。
+
+    heat（src.heat.HeatCurve）があれば見どころ曲線のしきい値超えの区間を切り出す
+    （2026-11-27〜）。無ければ従来の場面単位の選択（select_scenes）。
 
     Args:
         video_path: 元の録画動画パス
@@ -380,10 +384,60 @@ def make_shorts(
     # 重なるイベントを場面にまとめ、スコア上位の場面を選ぶ（合計 budget 秒以内）→ 時系列順
     budget = shorts_budget_sec(video_path.stem)
     print(f"  尺の上限: {budget:.0f} 秒")
-    selected = select_scenes(events, max_total_sec=budget)
+    from src.minimap import (
+        fit_travel_to_budget,
+        minimap_config,
+        plan_first_shot_overlay,
+        plan_travel_segments,
+    )
+    mm_cfg = minimap_config()
+    tr_cfg = (mm_cfg or {}).get("travel") or {}
+    use_travel = mm_cfg is not None and tr_cfg.get("enabled", True) and bool(positions)
+    # 尺が短いときは早送りも短くする（40秒版で 3 秒の早送りは重すぎる）
+    target_sec = min(tr_cfg.get("target_sec", 3.0), max(1.5, budget * 0.04))
+    max_out_sec = min(tr_cfg.get("max_out_sec", 5.0), max(2.5, budget * 0.07))
+
+    def choose(clip_budget: float):
+        if heat is not None:
+            from src.heat import select_segments
+            segs, th = select_segments(heat, clip_budget)
+            return [Scene(a, b, [e for e in events if a <= e.timestamp <= b]) for a, b in segs], th
+        return select_scenes(events, max_total_sec=clip_budget), None
+
+    def plan_travel(scenes):
+        if not use_travel:
+            return []
+        return plan_travel_segments(
+            [(sc.start, sc.end) for sc in scenes], positions,
+            min_distance_m=tr_cfg.get("min_distance_m", 150.0),
+            target_sec=target_sec,
+            min_speed=tr_cfg.get("min_speed", 4.0),
+            max_speed=tr_cfg.get("max_speed", 16.0),
+            max_out_sec=max_out_sec,
+        )
+
+    # 移動の早送りは場面より優先して尺を確保する（2026-11-27。40秒版で早送りが全部落ち、
+    # 前に出た場面へ唐突に切り替わって位置が分かりにくかった）。場面を選ぶ →
+    # その間の早送りの尺を見積もる → 足りなければ場面の予算を減らして選び直す
+    clip_budget = budget
+    for _ in range(3):
+        selected, threshold = choose(clip_budget)
+        need = sum(s.out_duration for s in plan_travel(selected))
+        if sum(sc.duration for sc in selected) + need <= budget or clip_budget <= budget * 0.5:
+            break
+        clip_budget = max(budget - need, budget * 0.5)
 
     if not selected:
         raise ValueError("選択されたハイライトイベントがありません")
+    if heat is not None:
+        from src.heat import plot_curve
+        segs = [(sc.start, sc.end) for sc in selected]
+        print(f"  見どころ曲線: しきい値 {threshold:.3f} で {len(segs)} 区間 / "
+              f"{sum(b - a for a, b in segs):.1f} 秒（熱の基準 {heat.xp_ref:.0f} XP）")
+        try:
+            plot_curve(heat, segs, threshold, output_path.with_suffix(".heat.png"))
+        except Exception as e:  # 確認用の画像なので失敗しても続行
+            print(f"  見どころ曲線の画像を保存できませんでした: {e}")
 
     # 各クリップを生成
     clips_dir = OUTPUT_DIR / "clips"
@@ -392,13 +446,6 @@ def make_shorts(
 
     hp_overlay = hp_overlay_config()
 
-    from src.minimap import (
-        fit_travel_to_budget,
-        minimap_config,
-        plan_first_shot_overlay,
-        plan_travel_segments,
-    )
-    mm_cfg = minimap_config()
     windows = [(sc.start, sc.end) for sc in selected]
 
     first_shot = None
@@ -410,18 +457,9 @@ def make_shorts(
             first_shot = plan_first_shot_overlay(
                 windows, shot_times, duration_sec=fs_cfg.get("duration_sec", 3.0)
             )
-        tr_cfg = mm_cfg.get("travel") or {}
-        if tr_cfg.get("enabled", True) and positions:
-            segs = plan_travel_segments(
-                windows, positions,
-                min_distance_m=tr_cfg.get("min_distance_m", 150.0),
-                target_sec=tr_cfg.get("target_sec", 3.0),
-                min_speed=tr_cfg.get("min_speed", 4.0),
-                max_speed=tr_cfg.get("max_speed", 16.0),
-                max_out_sec=tr_cfg.get("max_out_sec", 5.0),
-            )
+        if use_travel:
             clips_total = sum(b - a for a, b in windows)
-            segs = fit_travel_to_budget(segs, clips_total, budget)
+            segs = fit_travel_to_budget(plan_travel(selected), clips_total, budget)
             travel_after = {s.after_clip: s for s in segs}
 
     for i, scene in enumerate(selected):
@@ -437,9 +475,11 @@ def make_shorts(
                       hp_overlay=hp_overlay, minimap=minimap)
         clip_paths.append(clip_out)
         note = "（初弾マップ）" if minimap else ""
-        kinds = ", ".join(e.event_type for e in scene.events)
+        kinds = ", ".join(e.event_type for e in scene.events) or "-"
+        label = (f"heat_max={max(heat.at(scene.start + k * heat.dt) for k in range(int(duration / heat.dt) + 1)):.2f}"
+                 if heat is not None else f"score={scene.score:.3f}")
         print(f"  clip {i+1}/{len(selected)}: {scene.start:.1f}-{scene.end:.1f}s "
-              f"({duration:.1f}s, score={scene.score:.3f}, {kinds}) → {clip_out.name}{note}")
+              f"({duration:.1f}s, {label}, {kinds}) → {clip_out.name}{note}")
 
         seg = travel_after.get(i)
         if seg is not None:

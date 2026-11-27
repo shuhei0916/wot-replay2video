@@ -312,9 +312,44 @@ def _detect_events(recording_path: Path):
     return flash
 
 
-def make_highlight_shorts(recording_path: Path) -> Path | None:
+def _video_duration(path: Path) -> float | None:
+    ffprobe = find_ffprobe()
+    if ffprobe is None:
+        return None
+    try:
+        r = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        return float(r.stdout.strip())
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def _load_heat_curve(recording_path: Path, replay_path: Path | None):
+    """
+    見どころ曲線（src.heat）を作る。shorts.heat.enabled が false、mod v7 の記録が無い、
+    動画の長さが取れない場合は None（従来の場面単位の選択になる）。
+    """
+    if not (load_config().get("shorts", {}).get("heat", {}) or {}).get("enabled", True):
+        return None
+    duration = _video_duration(recording_path)
+    if duration is None:
+        return None
+    tank_id = None
+    if replay_path is not None:
+        try:
+            tank_id = parse_replay(replay_path).player_stats.type_comp_descr
+        except Exception:
+            pass
+    from src.heat import load_heat
+    return load_heat(recording_path, tank_id, duration)
+
+
+def make_highlight_shorts(recording_path: Path, replay_path: Path | None = None) -> Path | None:
     """
     録画からハイライトを検出して Shorts 動画を生成する。
+    replay_path があれば、車両の平均的な成績で見どころ曲線の熱を揃えるのに使う。
 
     Returns:
         Shorts 動画のパス。ハイライトが見つからない場合は None。
@@ -329,7 +364,8 @@ def make_highlight_shorts(recording_path: Path) -> Path | None:
     shorts_path = recording_path.with_name(recording_path.stem + "_shorts.mp4")
     print(f"Shorts 生成中 → {shorts_path.name}")
     from src.minimap import load_positions
-    make_shorts(recording_path, events, shorts_path, positions=load_positions(recording_path))
+    make_shorts(recording_path, events, shorts_path, positions=load_positions(recording_path),
+                heat=_load_heat_curve(recording_path, replay_path))
     return shorts_path
 
 
@@ -462,7 +498,7 @@ def process_replay(replay_path: Path) -> Path:
             recording.unlink(missing_ok=True)
             raise
 
-    shorts_path = make_highlight_shorts(recording)
+    shorts_path = make_highlight_shorts(recording, replay_path)
     if shorts_path is None:
         print(f"ハイライトが見つかりませんでした。録画のみ保存: {recording}")
         recording.unlink(missing_ok=True)

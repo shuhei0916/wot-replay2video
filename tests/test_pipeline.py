@@ -137,12 +137,12 @@ class TestModNotLoaded:
         monkeypatch.setattr(pipeline, "record_replay", lambda _: rec)
         monkeypatch.setattr(pipeline, "load_config",
                             lambda: {"recording": {"require_mod": False}})
-        monkeypatch.setattr(pipeline, "make_highlight_shorts", lambda _: None)
+        monkeypatch.setattr(pipeline, "make_highlight_shorts", lambda *_: None)
         assert pipeline.process_replay(tmp_path / "r.wotreplay") == rec
 
     def test_events_present_passes(self, tmp_path, monkeypatch):
         rec = self._record(tmp_path, with_events=True)
         monkeypatch.setattr(pipeline, "record_replay", lambda _: rec)
         monkeypatch.setattr(pipeline, "load_config", lambda: {})
-        monkeypatch.setattr(pipeline, "make_highlight_shorts", lambda _: None)
+        monkeypatch.setattr(pipeline, "make_highlight_shorts", lambda *_: None)
         assert pipeline.process_replay(tmp_path / "r.wotreplay") == rec
