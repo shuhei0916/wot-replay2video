@@ -213,6 +213,21 @@ class TestTravelFilter:
         assert "crop=520:520:1400:560" in graph
         assert graph.endswith("[out]")
 
+    def test_blur_fade_at_end(self):
+        # 最後の 0.4 秒でミニマップとマークを消し、ぼかし層を透明にして鮮明な映像へ
+        from src.edit_video import build_travel_filter
+        graph = build_travel_filter(1920, 1080, MINIMAP["src"], 8.0, out_duration=3.0, blur_fade_sec=0.4)
+        assert "split=3[v][mm][sh]" in graph
+        assert "enable='lt(t,2.6)'" in graph
+        assert "fade=t=out:st=2.6:d=0.4:alpha=1[blur]" in graph
+        assert "[sharp][blur]overlay=0:0" in graph
+        assert graph.endswith("[out]")
+
+    def test_blur_fade_skipped_when_clip_too_short(self):
+        from src.edit_video import build_travel_filter
+        graph = build_travel_filter(1920, 1080, MINIMAP["src"], 8.0, out_duration=0.3, blur_fade_sec=0.4)
+        assert "fade=" not in graph and "split=2[v][mm]" in graph
+
 
 # ---- 尺の上限と A/B テスト（2026-11-27） ----
 

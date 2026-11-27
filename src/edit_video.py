@@ -252,24 +252,49 @@ def build_travel_filter(
     minimap_src: dict,
     speed: float,
     map_width: int = 1000,
+    out_duration: float | None = None,
+    blur_fade_sec: float = 0.0,
 ) -> str:
     """
     早送りつなぎ用のフィルタ。ぼかした戦闘映像を背景に、ミニマップを大写しにして
     早送りマーク（▶▶）を付ける。海外の視聴者も想定し、文字は入れない。
+
+    blur_fade_sec > 0 かつ out_duration があれば、最後の blur_fade_sec 秒でミニマップと
+    マークを消し、ぼかしをゆっくり晴らして次の場面へつなぐ（2026-11-28。以前は次の場面で
+    一瞬で鮮明に切り替わっていた）。鮮明な映像の上に、ぼかし層を透明度のフェードで重ねる。
     """
     s = minimap_src
     map_h = round(s["h"] * map_width / s["w"])
     map_y = (SHORTS_HEIGHT - map_h) // 2 - 80
     label = "▶▶"  # ▶▶
+    crop = _center_crop_filter(src_width, src_height)
+    drawtext = (
+        f"drawtext=fontfile='{_SYMBOL_FONT}':text='{label}':fontsize=96:fontcolor=white:"
+        f"borderw=4:bordercolor=black:x=(w-text_w)/2:y={map_y + map_h + 40}"
+    )
+    if not (blur_fade_sec > 0 and out_duration and out_duration > blur_fade_sec):
+        return (
+            f"[0:v]setpts=PTS/{speed},split=2[v][mm];"
+            f"[v]{crop},boxblur=20:2,"
+            f"eq=brightness=-0.25[bg];"
+            f"[mm]crop={s['w']}:{s['h']}:{s['x']}:{s['y']},"
+            f"scale={map_width}:{map_h}:flags=lanczos[map];"
+            f"[bg][map]overlay=(W-w)/2:{map_y},"
+            f"{drawtext}[out]"
+        )
+    fade_at = round(out_duration - blur_fade_sec, 3)
+    shown = f"enable='lt(t,{fade_at})'"
     return (
-        f"[0:v]setpts=PTS/{speed},split=2[v][mm];"
-        f"[v]{_center_crop_filter(src_width, src_height)},boxblur=20:2,"
+        f"[0:v]setpts=PTS/{speed},split=3[v][mm][sh];"
+        f"[sh]{crop}[sharp];"
+        f"[v]{crop},boxblur=20:2,"
         f"eq=brightness=-0.25[bg];"
         f"[mm]crop={s['w']}:{s['h']}:{s['x']}:{s['y']},"
         f"scale={map_width}:{map_h}:flags=lanczos[map];"
-        f"[bg][map]overlay=(W-w)/2:{map_y},"
-        f"drawtext=fontfile='{_SYMBOL_FONT}':text='{label}':fontsize=96:fontcolor=white:"
-        f"borderw=4:bordercolor=black:x=(w-text_w)/2:y={map_y + map_h + 40}[out]"
+        f"[bg][map]overlay=(W-w)/2:{map_y}:{shown},"
+        f"{drawtext}:{shown},"
+        f"format=yuva420p,fade=t=out:st={fade_at}:d={blur_fade_sec}:alpha=1[blur];"
+        f"[sharp][blur]overlay=0:0,format=yuv420p[out]"
     )
 
 
@@ -282,6 +307,7 @@ def make_travel_clip(
     output_path: Path,
     src_width: int = 1920,
     src_height: int = 1080,
+    blur_fade_sec: float = 0.0,
 ) -> Path:
     """移動区間を早送りし、ミニマップ大写しのつなぎクリップ（無音）を作る。"""
     ffmpeg = _find_ffmpeg()
@@ -294,7 +320,9 @@ def make_travel_clip(
             "-t", str(src_end - src_start),
             "-i", str(video_path),
             "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
-            "-filter_complex", build_travel_filter(src_width, src_height, minimap_src, speed),
+            "-filter_complex", build_travel_filter(src_width, src_height, minimap_src, speed,
+                                                   out_duration=out_dur,
+                                                   blur_fade_sec=blur_fade_sec),
             "-map", "[out]", "-map", "1:a",
             "-t", f"{out_dur:.3f}",
             *VIDEO_ARGS,
@@ -485,7 +513,8 @@ def make_shorts(
         if seg is not None:
             travel_out = clips_dir / f"clip_{i:03d}_travel.mp4"
             make_travel_clip(video_path, seg.src_start, seg.src_end, seg.speed,
-                             mm_cfg["src"], travel_out)
+                             mm_cfg["src"], travel_out,
+                             blur_fade_sec=float(tr_cfg.get("blur_fade_sec", 0.4)))
             clip_paths.append(travel_out)
             print(f"    早送り {seg.src_start:.0f}-{seg.src_end:.0f}s "
                   f"({seg.distance_m:.0f}m, ×{seg.speed:g}, {seg.out_duration:.1f}s)")

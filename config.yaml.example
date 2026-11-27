@@ -75,6 +75,7 @@ shorts:
       min_speed: 4
       max_speed: 16
       max_out_sec: 5.0
+      blur_fade_sec: 0.4     # 早送りの最後にミニマップを消し、この秒数でぼかしを晴らして次の場面へ
   dynamic_clip_length:       # 射撃間隔（reload interval）でクリップ長を可変にする
     enabled: true            # false でクリップ長固定（CLIP_PRE_SEC/CLIP_POST_SEC）に戻せる
 
