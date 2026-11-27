@@ -81,11 +81,29 @@ class TestSegments:
         return build_curve([HeatInput(t, xp, "damage") for t in times], dur, xp_ref=100.0)
 
     def test_single_event_segment_has_lead_and_tail(self):
-        # 熱1.0 → 0.1 に冷めるのは半減期5秒で約16.6秒後
-        segs = hot_segments(self._curve([30.0]), threshold=0.1, lead=2.5, tail=0.5, gap=1.0)
+        # 入る 0.1 / 出る 0.05。熱1.0 → 0.05 に冷めるのは半減期5秒で約21.6秒後
+        segs = hot_segments(self._curve([30.0]), threshold=0.1, lead=2.5, tail=0.5, gap=1.0,
+                            exit_ratio=0.5)
         assert len(segs) == 1
         a, b = segs[0]
         assert a == 27.5
+        assert 51.5 <= b <= 52.5
+
+    def test_peak_barely_over_enter_still_lasts_half_life(self):
+        # ヒステリシス: 入るしきい値をぎりぎり超えた山でも、出るしきい値（0.6倍）まで
+        # 冷めるのに 半減期×log2(1/0.6) ≒ 3.7秒かかるので細切れにならない
+        import math
+        c = build_curve([HeatInput(30.0, 10.5, "damage")], 60.0, xp_ref=100.0)  # 山 0.105
+        (a, b), = hot_segments(c, threshold=0.1, lead=2.5, tail=0.5, exit_ratio=0.6)
+        assert b - a >= 2.5 + 5.0 * math.log2(1 / 0.6) + 0.5 - 0.2
+
+    def test_warm_but_never_enters_is_skipped(self):
+        c = build_curve([HeatInput(30.0, 8.0, "damage")], 60.0, xp_ref=100.0)  # 山 0.08 < 0.1
+        assert hot_segments(c, threshold=0.1) == []
+
+    def test_exit_ratio_one_matches_single_threshold(self):
+        c = self._curve([30.0])
+        (a, b), = hot_segments(c, threshold=0.1, lead=2.5, tail=0.5, exit_ratio=1.0)
         assert 46.5 <= b <= 47.5
 
     def test_close_events_merge_far_split(self):

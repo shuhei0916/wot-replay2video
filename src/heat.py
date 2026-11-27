@@ -36,8 +36,11 @@ DRAMA_PER_DAMAGE_TAKEN = 0.05  # 被弾（受けたダメージ1あたり。与�
 # 曲線と切り出し
 DT = 0.1                 # 曲線の刻み（秒）
 HALF_LIFE_SEC = 5.0      # 熱が半分に冷めるまでの秒数
-THRESHOLD = 0.1          # 切り出すしきい値（熱 = 平均的な1戦の戦闘経験値に対する割合）
-                         # T29 では普通の命中1発で約0.2 → 1発で5秒ほど熱が残る
+THRESHOLD = 0.1          # 入るしきい値: 熱がこれを超えた山を見どころとみなす（熱 = 平均的な
+                         # 1戦の戦闘経験値に対する割合。T29 では普通の命中1発で約0.2）
+EXIT_RATIO = 0.6         # 出るしきい値 = 入るしきい値 × これ。区間は熱がここを下回るまで続く
+                         # （0.5 だと T29 の近い撃破2つが間の命中とつながり28秒の1区間になって40秒版から落ちた）
+                         # （ヒステリシス。入るぎりぎりの山でも約3.7秒は熱が残り、細切れにならない）
 MIN_THRESHOLD = 0.03     # 総尺が下限に届かないとき、ここまでしきい値を下げてよい
 LEAD_SEC = 2.5           # 区間の頭に足す照準の溜め（熱は出来事の瞬間に跳ね上がるため）
 TAIL_SEC = 0.5           # 区間の終わりに足す余韻
@@ -137,17 +140,26 @@ def build_curve(inputs: list[HeatInput], duration: float, xp_ref: float,
 
 
 def hot_segments(curve: HeatCurve, threshold: float, lead: float = LEAD_SEC,
-                 tail: float = TAIL_SEC, gap: float = MERGE_GAP_SEC) -> list[tuple[float, float]]:
-    """熱が threshold 以上の区間（頭に lead、終わりに tail を足し、近い区間はつなぐ）。"""
-    hot = curve.values >= threshold
+                 tail: float = TAIL_SEC, gap: float = MERGE_GAP_SEC,
+                 exit_ratio: float = EXIT_RATIO) -> list[tuple[float, float]]:
+    """
+    見どころの区間（2つのしきい値 = ヒステリシス）。熱が「出るしきい値」
+    （threshold × exit_ratio）以上の連続区間のうち、「入るしきい値」threshold に
+    届いた山を含むものだけを採る。どの山を選ぶかは入るしきい値、区間の長さは
+    出るしきい値で決まるので、入るぎりぎりの山でも細切れにならない。
+    頭に lead、終わりに tail を足し、間が gap 未満の区間はつなぐ。
+    """
+    exit_th = threshold * exit_ratio
+    warm = curve.values >= exit_th
     raw: list[tuple[float, float]] = []
-    i, n = 0, len(hot)
+    i, n = 0, len(warm)
     while i < n:
-        if hot[i]:
+        if warm[i]:
             j = i
-            while j + 1 < n and hot[j + 1]:
+            while j + 1 < n and warm[j + 1]:
                 j += 1
-            raw.append((i * curve.dt, (j + 1) * curve.dt))
+            if curve.values[i:j + 1].max() >= threshold:
+                raw.append((i * curve.dt, (j + 1) * curve.dt))
             i = j + 1
         else:
             i += 1
@@ -235,7 +247,11 @@ def plot_curve(curve: HeatCurve, segments: list[tuple[float, float]], threshold:
     pts = np.array([[x(i * curve.dt), y(v)] for i, v in enumerate(curve.values)], np.int32)
     cv2.polylines(img, [pts], False, (30, 30, 30), 2, cv2.LINE_AA)
     cv2.line(img, (pad_l, y(threshold)), (pad_l + w, y(threshold)), (0, 0, 200), 1, cv2.LINE_AA)
-    cv2.putText(img, f"threshold {threshold:.3f}", (pad_l + 5, y(threshold) - 6),
+    exit_th = threshold * EXIT_RATIO
+    cv2.line(img, (pad_l, y(exit_th)), (pad_l + w, y(exit_th)), (0, 140, 255), 1, cv2.LINE_AA)
+    cv2.putText(img, f"exit {exit_th:.3f}", (pad_l + 5, y(exit_th) - 6),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 140, 255), 1, cv2.LINE_AA)
+    cv2.putText(img, f"enter {threshold:.3f}", (pad_l + 5, y(threshold) - 6),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 200), 1, cv2.LINE_AA)
     for hi in curve.inputs:
         color = _KIND_COLORS.get(hi.kind, (120, 120, 120))
