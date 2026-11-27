@@ -34,6 +34,17 @@ HIT_TAKEN_BASE_SCORE = 0.75
 DUEL_BONUS = 0.15           # 射撃直後に被弾していた（撃ち合い）場合の加点
 DUEL_WINDOW_SEC = 3.0       # 射撃からこの秒数以内の被弾を「撃ち合い」とみなす
 
+# 射撃の結果によるスコア（mod v7 の hit_dealt / damage_dealt がある記録のみ。2026-11-27）
+# 「何が起きた射撃か」で順位を付ける。音声・撃ち合いの加点は小さくして結果を優先する
+OUTCOME_WINDOW_SEC = 4.0     # 射撃からこの秒数以内の命中・与ダメをその射撃の結果とみなす
+SCORE_KILL = 0.8             # 撃破
+SCORE_DAMAGE_RANGE = (0.55, 0.7)  # 与ダメ（その試合で最大の一撃を上限に線形）
+SCORE_NO_DAMAGE_HIT = 0.45   # 非貫通・跳弾（当たったが抜けない「溜め」）
+SCORE_MISS = 0.25            # 何も起きなかった射撃
+SCORE_OTHER_DAMAGE = 0.5     # 射撃以外（体当たり・火災等）の与ダメ
+OUTCOME_DUEL_BONUS = 0.1
+OUTCOME_AUDIO_BONUS_MAX = 0.1
+
 # 可変長クリップ: 直前の自分の射撃からの経過秒（reload interval）でクリップ長を決める。
 # 車両ごとのDPM静的テーブルではなく、そのリプレイで実際に観測した間隔を使う
 # （装填ブースト等の実際の挙動に追従し、新車両追加時のメンテも不要なため）
@@ -72,6 +83,71 @@ def pacing_for_interval(interval: float | None, rng: random.Random) -> tuple[flo
     return round(pre, 2), round(post, 2)
 
 
+def _apply_outcomes(
+    shots: list[HighlightEvent], dealt: list[tuple[float, dict]]
+) -> tuple[list[HighlightEvent], list[HighlightEvent]]:
+    """
+    mod v7 の命中・与ダメを直前の射撃に結び付け、射撃のスコアと種類を結果で決める。
+
+    - 射撃からの命中・与ダメ（攻撃の種類=射撃）は、OUTCOME_WINDOW_SEC 以内で直前の射撃の結果
+    - 撃破 > 与ダメ（その試合の最大の一撃を基準に大きいほど高い）> 非貫通 > 何も起きない
+    - 射撃に結び付かない与ダメ（体当たり・火災など）は単独のイベントにする
+
+    event_type は shot_mod_kill / shot_mod_damage / shot_mod_nopen / shot_mod_miss と
+    damage_mod_other（いずれも "shot" で始まる射撃系は従来どおり射撃として扱われる）。
+    Returns: (結果付きの射撃, 射撃以外の与ダメイベント)
+    """
+    shot_ts = [s.timestamp for s in shots]
+    result = [{"damage": 0, "killed": False, "hit": False} for _ in shots]
+    others: list[tuple[float, dict]] = []
+
+    def owner(ts: float) -> int | None:
+        idx = None
+        for i, st in enumerate(shot_ts):
+            if st <= ts <= st + OUTCOME_WINDOW_SEC:
+                idx = i      # 窓内で最も遅い（直前の）射撃
+            elif st > ts:
+                break
+        return idx
+
+    for ts, e in dealt:
+        if e.get("type") == "damage_dealt" and e.get("reason", 0) not in (0, None):
+            others.append((ts, e))
+            continue
+        i = owner(ts)
+        if i is None:
+            if e.get("type") == "damage_dealt":
+                others.append((ts, e))
+            continue
+        if e.get("type") == "hit_dealt":
+            result[i]["hit"] = True
+        else:
+            result[i]["damage"] += e.get("damage", 0) or 0
+            result[i]["killed"] = result[i]["killed"] or bool(e.get("killed"))
+
+    max_dmg = max((r["damage"] for r in result), default=0) or 1
+    lo, hi = SCORE_DAMAGE_RANGE
+    out = []
+    for s, r in zip(shots, result):
+        if r["killed"]:
+            kind, score = "shot_mod_kill", SCORE_KILL
+        elif r["damage"] > 0:
+            kind, score = "shot_mod_damage", lo + (hi - lo) * min(r["damage"] / max_dmg, 1.0)
+        elif r["hit"]:
+            kind, score = "shot_mod_nopen", SCORE_NO_DAMAGE_HIT
+        else:
+            kind, score = "shot_mod_miss", SCORE_MISS
+        out.append(HighlightEvent(timestamp=s.timestamp, event_type=kind, score=round(score, 3),
+                                  pre_sec=s.pre_sec, post_sec=s.post_sec))
+
+    other_events = [
+        HighlightEvent(timestamp=ts, event_type="damage_mod_other",
+                       score=SCORE_KILL if e.get("killed") else SCORE_OTHER_DAMAGE)
+        for ts, e in others if (e.get("damage") or 0) > 0
+    ]
+    return out, other_events
+
+
 def convert_events(
     data: dict,
     rec_start_epoch: float,
@@ -92,10 +168,11 @@ def convert_events(
     """
     shots: list[HighlightEvent] = []
     hits: list[tuple[float, float | None]] = []
+    dealt: list[tuple[float, dict]] = []   # v7: (ts, hit_dealt / damage_dealt イベント)
 
     for e in data.get("events", []):
         et = e.get("type")
-        if et not in ("shot", "hit_taken"):
+        if et not in ("shot", "hit_taken", "hit_dealt", "damage_dealt"):
             continue
         ts = round(float(e["epoch"]) - rec_start_epoch, 2)
         if ts < 0:
@@ -104,8 +181,17 @@ def convert_events(
             continue
         if et == "shot":
             shots.append(HighlightEvent(timestamp=ts, event_type="shot_mod", score=BASE_SCORE))
-        else:
+        elif et == "hit_taken":
             hits.append((ts, e.get("damage_pct")))
+        else:
+            dealt.append((ts, e))
+
+    has_outcomes = bool(dealt) or any(
+        e.get("type") in ("hit_dealt", "damage_dealt") for e in data.get("events", [])
+    )
+    other_damage: list[HighlightEvent] = []
+    if has_outcomes:
+        shots, other_damage = _apply_outcomes(sorted(shots, key=lambda e: e.timestamp), dealt)
 
     if dynamic_pacing and shots:
         rng = random.Random()
@@ -128,9 +214,10 @@ def convert_events(
     for s in shots:
         is_duel = any(0 <= ts - s.timestamp <= DUEL_WINDOW_SEC for ts in hit_timestamps)
         if is_duel:
+            bonus = OUTCOME_DUEL_BONUS if has_outcomes else DUEL_BONUS
             boosted_shots.append(HighlightEvent(
                 timestamp=s.timestamp, event_type=s.event_type,
-                score=round(min(s.score + DUEL_BONUS, 1.0), 3),
+                score=round(min(s.score + bonus, 1.0), 3),
                 pre_sec=s.pre_sec, post_sec=s.post_sec,
             ))
         else:
@@ -143,7 +230,7 @@ def convert_events(
         if pct is not None and pct >= HIT_TAKEN_MIN_PCT
     ]
 
-    return sorted(boosted_shots + hit_events, key=lambda e: e.timestamp)
+    return sorted(boosted_shots + hit_events + other_damage, key=lambda e: e.timestamp)
 
 
 def score_with_audio(
@@ -153,15 +240,18 @@ def score_with_audio(
 ) -> list[HighlightEvent]:
     """
     mod イベントのスコアを近傍の音声ピーク強度で重み付けする。
-    クリップ数が上限を超えたときの選抜（select_clips）で
-    「大きな砲撃音のショット」を優先させるため。
+    尺の上限を超えたときの選抜（select_scenes）で「大きな砲撃音のショット」を優先させるため。
+    mod v7 の結果付きの射撃は結果を優先し、音声の加点を小さくする。
     """
     scored = []
     for m in mod_events:
         bonus = 0.0
         for a in audio_events:
             if abs(a.timestamp - m.timestamp) <= window_sec:
-                bonus = max(bonus, AUDIO_BONUS_MAX * a.score)
+                bonus = max(bonus, a.score)
+        outcome = m.event_type.startswith(("shot_mod_", "damage_mod"))
+        cap = OUTCOME_AUDIO_BONUS_MAX if outcome else AUDIO_BONUS_MAX
+        bonus *= cap
         scored.append(HighlightEvent(
             timestamp=m.timestamp,
             event_type=m.event_type,

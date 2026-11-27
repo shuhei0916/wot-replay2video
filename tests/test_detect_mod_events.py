@@ -348,3 +348,85 @@ def test_combat_summary_matches_real_battle():
     m = combat_summary(json.loads(p.read_text(encoding="utf-8")))
     assert (m["shots"], m["hits"], m["damage"], m["kills"]) == (13, 11, 2548, 2)
     assert m["no_damage_hits"] == 2
+
+
+
+# ---- mod v7: 射撃の結果でスコアを決める（2026-11-27） ----
+
+def _v7(events):
+    return {"events": [dict(e, epoch=REC_START + e["t"]) for e in events]}
+
+
+class TestOutcomeScoring:
+    def test_kill_damage_nopen_miss(self):
+        from src.detect_mod_events import (SCORE_DAMAGE_RANGE, SCORE_KILL, SCORE_MISS,
+                                           SCORE_NO_DAMAGE_HIT)
+        data = _v7([
+            {"t": 10, "type": "shot"},
+            {"t": 10.2, "type": "hit_dealt", "damage_factor": 60},
+            {"t": 10.2, "type": "damage_dealt", "damage": 300, "killed": False, "reason": 0},
+            {"t": 30, "type": "shot"},
+            {"t": 30.1, "type": "hit_dealt", "damage_factor": 0},
+            {"t": 50, "type": "shot"},
+            {"t": 70, "type": "shot"},
+            {"t": 70.1, "type": "hit_dealt", "damage_factor": 40},
+            {"t": 70.1, "type": "damage_dealt", "damage": 150, "killed": True, "reason": 0},
+        ])
+        ev = {e.timestamp: e for e in convert_events(data, REC_START, dynamic_pacing=False)}
+        assert ev[10.0].event_type == "shot_mod_damage" and ev[10.0].score == SCORE_DAMAGE_RANGE[1]
+        assert ev[30.0].event_type == "shot_mod_nopen" and ev[30.0].score == SCORE_NO_DAMAGE_HIT
+        assert ev[50.0].event_type == "shot_mod_miss" and ev[50.0].score == SCORE_MISS
+        assert ev[70.0].event_type == "shot_mod_kill" and ev[70.0].score == SCORE_KILL
+        assert ev[70.0].score > ev[10.0].score > ev[30.0].score > ev[50.0].score
+
+    def test_damage_scaled_by_battle_max(self):
+        data = _v7([
+            {"t": 10, "type": "shot"}, {"t": 10.1, "type": "damage_dealt", "damage": 400, "reason": 0},
+            {"t": 30, "type": "shot"}, {"t": 30.1, "type": "damage_dealt", "damage": 100, "reason": 0},
+        ])
+        ev = {e.timestamp: e for e in convert_events(data, REC_START, dynamic_pacing=False)}
+        assert ev[10.0].score > ev[30.0].score
+
+    def test_result_attributed_to_latest_shot_in_window(self):
+        data = _v7([
+            {"t": 10, "type": "shot"}, {"t": 12, "type": "shot"},
+            {"t": 12.3, "type": "damage_dealt", "damage": 200, "reason": 0},
+        ])
+        ev = {e.timestamp: e for e in convert_events(data, REC_START, dynamic_pacing=False)}
+        assert ev[10.0].event_type == "shot_mod_miss"
+        assert ev[12.0].event_type == "shot_mod_damage"
+
+    def test_ram_kill_becomes_own_event(self):
+        data = _v7([
+            {"t": 10, "type": "shot"}, {"t": 10.1, "type": "hit_dealt", "damage_factor": 0},
+            {"t": 60, "type": "damage_dealt", "damage": 151, "killed": True, "reason": 2},
+        ])
+        ev = convert_events(data, REC_START, dynamic_pacing=False)
+        other = [e for e in ev if e.event_type == "damage_mod_other"]
+        assert len(other) == 1 and other[0].timestamp == 60.0
+
+    def test_legacy_records_keep_base_score(self):
+        ev = convert_events(_data([10.0, 30.0]), REC_START, dynamic_pacing=False)
+        assert all(e.event_type == "shot_mod" and e.score == BASE_SCORE for e in ev)
+
+    def test_audio_bonus_small_for_outcome_shots(self):
+        from src.detect_mod_events import OUTCOME_AUDIO_BONUS_MAX, SCORE_MISS
+        data = _v7([{"t": 10, "type": "shot"}, {"t": 30, "type": "shot"},
+                    {"t": 30.1, "type": "hit_dealt", "damage_factor": 0}])
+        mod = convert_events(data, REC_START, dynamic_pacing=False)
+        scored = {e.timestamp: e for e in score_with_audio(mod, [_audio(10.0, score=1.0)])}
+        assert scored[10.0].score == round(SCORE_MISS + OUTCOME_AUDIO_BONUS_MAX, 3)
+
+    def test_real_battle_ordering(self):
+        import json
+        from pathlib import Path
+        p = Path(__file__).parent / "fixtures" / "mod_v7_chigo_ensk.events.json"
+        data = json.loads(p.read_text(encoding="utf-8"))
+        start = data["events"][0]["epoch"]
+        ev = convert_events(data, start, dynamic_pacing=False)
+        kinds = [e.event_type for e in ev]
+        assert kinds.count("shot_mod_kill") == 1        # 射撃での撃破1（もう1両は体当たり）
+        assert kinds.count("damage_mod_other") == 1
+        assert kinds.count("shot_mod_nopen") == 2
+        assert kinds.count("shot_mod_miss") == 2
+        assert kinds.count("shot_mod_damage") == 8

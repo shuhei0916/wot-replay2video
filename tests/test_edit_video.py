@@ -2,7 +2,7 @@
 edit_video モジュールの純粋ロジックのテスト。
 
 ffmpeg を使う clip_and_crop / make_shorts は対象外とし、
-クリップ選択ロジック（_dedup_clips / select_clips）を検証する。
+場面単位の選択ロジック（build_scenes / trim_scene / select_scenes）を検証する。
 """
 
 from src.detect_highlights import HighlightEvent
@@ -10,9 +10,10 @@ from src.edit_video import (
     CLIP_POST_SEC,
     CLIP_PRE_SEC,
     SHORTS_MAX_SEC,
-    _dedup_clips,
     build_filter_args,
-    select_clips,
+    build_scenes,
+    select_scenes,
+    trim_scene,
 )
 
 CLIP_DURATION = CLIP_PRE_SEC + CLIP_POST_SEC
@@ -22,106 +23,120 @@ def _event(timestamp: float, score: float = 0.5) -> HighlightEvent:
     return HighlightEvent(timestamp=timestamp, event_type="shot_flash", score=score)
 
 
-# ---- _dedup_clips: クリップ範囲の重複除去 ----
-
-class TestDedupClips:
-    def test_empty(self):
-        assert _dedup_clips([]) == []
-
-    def test_far_apart_events_all_kept(self):
-        events = [_event(10.0), _event(100.0), _event(200.0)]
-        assert len(_dedup_clips(events)) == 3
-
-    def test_overlapping_events_keep_higher_score(self):
-        low = _event(10.0, score=0.2)
-        high = _event(12.0, score=0.9)  # 10s のクリップ範囲 (7-14s) と重なる
-        kept = _dedup_clips([low, high])
-        assert kept == [high]
-
-    def test_adjacent_but_not_overlapping_kept(self):
-        # クリップは [t-3, t+4] なので 7 秒離れていれば重ならない
-        events = [_event(10.0), _event(10.0 + CLIP_DURATION)]
-        assert len(_dedup_clips(events)) == 2
-
-
-# ---- select_clips: 60 秒上限 + 時系列順 ----
-
-class TestSelectClips:
-    def test_empty(self):
-        assert select_clips([]) == []
-
-    def test_result_sorted_by_timestamp(self):
-        events = [_event(200.0, 0.9), _event(50.0, 0.5), _event(120.0, 0.7)]
-        selected = select_clips(events)
-        timestamps = [e.timestamp for e in selected]
-        assert timestamps == sorted(timestamps)
-
-    def test_total_duration_within_shorts_limit(self):
-        # 20 イベント（重複なし）を入れても合計が上限以内に収まる本数に絞られる
-        events = [_event(i * 60.0, score=0.5) for i in range(20)]
-        selected = select_clips(events)
-        assert len(selected) * CLIP_DURATION <= SHORTS_MAX_SEC
-
-    def test_highest_scores_survive_cap(self):
-        # 上限を超える本数がある場合、スコア上位が優先される
-        max_clips = int(SHORTS_MAX_SEC // CLIP_DURATION)
-        n = max_clips + 5
-        events = [_event(i * 60.0, score=(i + 1) / n) for i in range(n)]
-        selected = select_clips(events)
-        scores = sorted((e.score for e in selected), reverse=True)
-        expected_top = sorted((e.score for e in events), reverse=True)[:max_clips]
-        assert scores == expected_top
-
-    def test_custom_max_total_sec(self):
-        events = [_event(i * 60.0, score=0.5) for i in range(10)]
-        selected = select_clips(events, max_total_sec=CLIP_DURATION * 2)
-        assert len(selected) == 2
-
-    def test_at_least_one_clip_even_with_tiny_limit(self):
-        events = [_event(10.0)]
-        selected = select_clips(events, max_total_sec=1.0)
-        assert len(selected) == 1
-
-
-# ---- 可変長クリップ（pre_sec/post_sec 指定あり）----
-
 def _paced_event(timestamp: float, pre: float, post: float, score: float = 0.5) -> HighlightEvent:
     return HighlightEvent(
         timestamp=timestamp, event_type="shot_mod", score=score, pre_sec=pre, post_sec=post,
     )
 
 
-class TestVariableLengthClips:
-    def test_dedup_uses_own_pre_post_not_fixed(self):
-        # 短いクリップ(pre=1,post=1)同士は6秒離れていれば重ならないが、
-        # 固定長(CLIP_DURATION=7秒)基準だと重なってしまう距離
-        a = _paced_event(10.0, pre=1.0, post=1.0, score=0.5)
-        b = _paced_event(16.0, pre=1.0, post=1.0, score=0.9)
-        assert len(_dedup_clips([a, b])) == 2
+# ---- build_scenes: 重なるイベントを1つの場面にまとめる（2026-11-27） ----
 
-    def test_dedup_long_clip_still_overlaps_at_same_distance(self):
-        a = _paced_event(10.0, pre=3.0, post=4.0, score=0.5)
-        b = _paced_event(16.0, pre=3.0, post=4.0, score=0.9)
-        kept = _dedup_clips([a, b])
-        assert kept == [b]
+class TestBuildScenes:
+    def test_empty(self):
+        assert build_scenes([]) == []
 
-    def test_select_clips_fits_more_short_clips_in_budget(self):
-        events = [_paced_event(i * 20.0, pre=1.0, post=1.0) for i in range(10)]
-        selected = select_clips(events, max_total_sec=10.0)
-        assert len(selected) == 5
+    def test_overlapping_events_merge_into_one_scene(self):
+        # 100s（97-104s）と 105s（102-109s）は重なる → 97-109s の1場面に両方入る
+        scenes = build_scenes([_event(105.0, 0.9), _event(100.0, 0.2)])
+        assert len(scenes) == 1
+        assert (scenes[0].start, scenes[0].end) == (97.0, 109.0)
+        assert [e.timestamp for e in scenes[0].events] == [100.0, 105.0]
 
-    def test_select_clips_skips_oversized_high_score_for_smaller_ones(self):
-        # 最高スコアのクリップが尺オーバーでも、後続の小さいクリップは拾われる
+    def test_small_gap_merges_large_gap_splits(self):
+        # 窓は [t-3, t+4]。10s の窓の終わりは 14s
+        near = build_scenes([_event(10.0), _event(17.5)])   # 次の窓は 14.5s から（間 0.5s）
+        far = build_scenes([_event(10.0), _event(18.5)])    # 次の窓は 15.5s から（間 1.5s）
+        assert len(near) == 1 and len(far) == 2
+
+    def test_chain_merges_transitively(self):
+        scenes = build_scenes([_event(10.0), _event(15.0), _event(20.0)])
+        assert len(scenes) == 1 and scenes[0].end == 24.0
+
+    def test_window_clamped_at_zero(self):
+        assert build_scenes([_event(1.0)])[0].start == 0.0
+
+    def test_uses_variable_pre_post(self):
+        a = _paced_event(10.0, pre=1.0, post=1.0)
+        b = _paced_event(16.0, pre=1.0, post=1.0)  # 固定長なら重なる距離だが短窓なので別場面
+        assert len(build_scenes([a, b])) == 2
+
+    def test_scene_score_rewards_extra_highlights(self):
+        single = build_scenes([_event(10.0, 0.7)])[0]
+        double = build_scenes([_event(10.0, 0.7), _event(13.0, 0.6)])[0]
+        with_miss = build_scenes([_event(10.0, 0.7), _event(13.0, 0.25)])[0]
+        assert single.score == 0.7
+        assert double.score == 0.8            # 見どころが1つ増えて +0.1
+        assert with_miss.score == 0.7         # 何も起きない外れ（0.5 未満）は数えない
+
+    def test_scene_bonus_capped(self):
+        sc = build_scenes([_event(10.0 + i * 3, 0.7) for i in range(10)])[0]
+        assert sc.score == 1.0  # 0.7 + 上限 0.3
+
+
+# ---- trim_scene: 長すぎる場面を端から削る ----
+
+class TestTrimScene:
+    def test_drops_lower_scored_edge(self):
+        sc = build_scenes([_event(10.0, 0.3), _event(14.0, 0.9), _event(18.0, 0.8)])[0]  # 7-22s
+        trimmed = trim_scene(sc, 12.0)
+        assert [e.timestamp for e in trimmed.events] == [14.0, 18.0]
+        assert (trimmed.start, trimmed.end) == (11.0, 22.0)
+
+    def test_keeps_best_until_fits(self):
+        sc = build_scenes([_event(10.0, 0.5), _event(14.0, 0.9), _event(18.0, 0.4)])[0]
+        trimmed = trim_scene(sc, 7.0)
+        assert [e.timestamp for e in trimmed.events] == [14.0]
+
+    def test_single_event_unchanged(self):
+        sc = build_scenes([_event(10.0)])[0]
+        assert trim_scene(sc, 1.0).duration == CLIP_DURATION
+
+
+# ---- select_scenes: 尺の上限 + 時系列順 ----
+
+class TestSelectScenes:
+    def test_empty(self):
+        assert select_scenes([]) == []
+
+    def test_result_sorted_by_time(self):
+        scenes = select_scenes([_event(200.0, 0.9), _event(50.0, 0.5), _event(120.0, 0.7)])
+        starts = [s.start for s in scenes]
+        assert starts == sorted(starts)
+
+    def test_total_within_limit(self):
+        scenes = select_scenes([_event(i * 60.0) for i in range(30)])
+        assert sum(s.duration for s in scenes) <= SHORTS_MAX_SEC
+
+    def test_highest_scores_survive(self):
+        events = [_event(i * 60.0, score=round((i + 1) / 10, 1)) for i in range(10)]
+        scenes = select_scenes(events, max_total_sec=CLIP_DURATION * 3)
+        assert sorted(s.top.score for s in scenes) == [0.8, 0.9, 1.0]
+
+    def test_overlapping_second_shot_is_kept(self):
+        # 旧方式では低スコア側（105s の撃破かもしれない射撃）が捨てられていた
+        scenes = select_scenes([_event(100.0, 0.9), _event(105.0, 0.5)], max_total_sec=40.0)
+        assert len(scenes) == 1 and len(scenes[0].events) == 2
+
+    def test_long_scene_trimmed_into_remaining_budget(self):
+        brawl = [_event(100.0 + i * 4, 0.6) for i in range(8)]   # 97-132s の 35 秒の場面
+        brawl[3] = _event(112.0, 0.95)
+        scenes = select_scenes(brawl, max_total_sec=20.0)
+        assert len(scenes) == 1
+        assert scenes[0].duration <= 20.0
+        assert 112.0 in [e.timestamp for e in scenes[0].events]   # 一番の見どころは残る
+
+    def test_oversized_single_skipped_for_smaller(self):
         huge = _paced_event(10.0, pre=50.0, post=50.0, score=1.0)
         small = _paced_event(200.0, pre=1.0, post=1.0, score=0.5)
-        selected = select_clips([huge, small], max_total_sec=10.0)
-        assert selected == [small]
+        scenes = select_scenes([huge, small], max_total_sec=10.0)
+        assert [s.top for s in scenes] == [small]
 
-    def test_mixed_fixed_and_variable_events(self):
-        fixed = _event(10.0, score=0.9)  # pre_sec/post_sec None → 既定値 (7秒)
-        variable = _paced_event(100.0, pre=1.0, post=1.0, score=0.5)
-        selected = select_clips([fixed, variable], max_total_sec=100.0)
-        assert len(selected) == 2
+    def test_at_least_one_scene_with_tiny_limit(self):
+        assert len(select_scenes([_event(10.0)], max_total_sec=1.0)) == 1
+
+    def test_fits_more_short_scenes(self):
+        events = [_paced_event(i * 20.0, pre=1.0, post=1.0) for i in range(10)]
+        assert len(select_scenes(events, max_total_sec=10.0)) == 5
 
 
 # ---- build_filter_args: フィルタ引数の組み立て ----

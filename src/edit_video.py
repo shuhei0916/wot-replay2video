@@ -2,12 +2,13 @@
 ハイライトイベントから YouTube Shorts 用動画を生成する。
 
 処理フロー:
-  1. イベントタイムスタンプ周辺をクリップ（重複除去済み）
+  1. 時間が重なるイベントを場面にまとめ、スコア上位の場面を尺の上限まで選ぶ
   2. 各クリップを 9:16 縦型にクロップ（中央）
-  3. クリップを結合して最大 60 秒の Shorts 動画を出力
+  3. 場面を時系列順に結合して Shorts 動画を出力（尺の上限は shorts_budget_sec）
 """
 
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from src.config import OUTPUT_DIR, find_ffmpeg, load_config
@@ -61,52 +62,101 @@ def _effective_duration(event: HighlightEvent) -> float:
     return _effective_pre(event) + _effective_post(event)
 
 
-def _dedup_clips(events: list[HighlightEvent]) -> list[HighlightEvent]:
-    """
-    スコア降順で選択しながら、時間が重複するイベントを除去する。
-
-    高スコアのイベントを優先し、そのクリップ範囲と重なる低スコアの
-    イベントをスキップする。クリップ範囲は各イベント自身の pre_sec/post_sec
-    （可変長クリップ）を使う。
-    """
-    by_score = sorted(events, key=lambda e: e.score, reverse=True)
-    kept: list[HighlightEvent] = []
-    for e in by_score:
-        e_start = e.timestamp - _effective_pre(e)
-        e_end   = e.timestamp + _effective_post(e)
-        overlap = any(
-            not (e_end <= (k.timestamp - _effective_pre(k)) or e_start >= (k.timestamp + _effective_post(k)))
-            for k in kept
-        )
-        if not overlap:
-            kept.append(e)
-    return kept
+# 場面（シーン）単位の選択（2026-11-27）: 時間が重なるイベントを捨てずに1本の連続した
+# 場面にまとめる。旧方式は重なる低スコア側を捨てていたため、連射・撃ち合いの2発目
+# （撃破のこともある）が映らなかった
+SCENE_MERGE_GAP_SEC = 1.0      # 窓の間がこれ未満ならつなげる（1秒未満のジャンプは見づらい）
+SCENE_EXTRA_BONUS = 0.1        # 見どころが1つ増えるごとの加点
+SCENE_EXTRA_BONUS_MAX = 0.3
+SCENE_NOTABLE_SCORE = 0.5      # 加点の対象にするイベントのスコア下限（何も起きない外れは数えない）
+SCENE_MIN_TRIMMED_SEC = 3.0    # 削ってまで入れる場面の最短長
 
 
-def select_clips(
-    events: list[HighlightEvent],
-    max_total_sec: float = SHORTS_MAX_SEC,
-) -> list[HighlightEvent]:
-    """
-    Shorts に収めるイベントを選択する。
+@dataclass
+class Scene:
+    start: float
+    end: float
+    events: list[HighlightEvent]
 
-    重複除去後、スコア降順に舐めながら、そのイベントの実尺（可変長）を
-    足しても合計が max_total_sec を超えない限り採用する（超えるものは
-    スキップして次を試す貪欲法）。採用したものをタイムスタンプ順に並べて返す。
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+    @property
+    def score(self) -> float:
+        """場面内の最高スコア + 他の見どころの数に応じた加点。"""
+        if not self.events:
+            return 0.0
+        scores = sorted((e.score for e in self.events), reverse=True)
+        notable = sum(1 for s in scores[1:] if s >= SCENE_NOTABLE_SCORE)
+        return round(scores[0] + min(SCENE_EXTRA_BONUS * notable, SCENE_EXTRA_BONUS_MAX), 3)
+
+    @property
+    def top(self) -> HighlightEvent:
+        return max(self.events, key=lambda e: e.score)
+
+
+def _window(e: HighlightEvent) -> tuple[float, float]:
+    return max(0.0, e.timestamp - _effective_pre(e)), e.timestamp + _effective_post(e)
+
+
+def _scene_of(events: list[HighlightEvent]) -> Scene:
+    ws = [_window(e) for e in events]
+    return Scene(min(a for a, _ in ws), max(b for _, b in ws), sorted(events, key=lambda e: e.timestamp))
+
+
+def build_scenes(events: list[HighlightEvent], gap: float = SCENE_MERGE_GAP_SEC) -> list[Scene]:
+    """イベントの窓が重なる（間が gap 未満）ものを1つの場面にまとめる。時系列順。"""
+    scenes: list[Scene] = []
+    for e in sorted(events, key=lambda e: _window(e)[0]):
+        a, b = _window(e)
+        if scenes and a < scenes[-1].end + gap:
+            last = scenes[-1]
+            last.events.append(e)
+            last.end = max(last.end, b)
+        else:
+            scenes.append(Scene(a, b, [e]))
+    return scenes
+
+
+def trim_scene(scene: Scene, max_sec: float) -> Scene:
     """
-    deduped = _dedup_clips(events)
-    by_score = sorted(deduped, key=lambda e: e.score, reverse=True)
-    selected: list[HighlightEvent] = []
+    max_sec に収まるまで、場面の最初か最後のイベントのうちスコアの低い方を外して縮める
+    （同点なら後ろを外す）。イベントが1つになっても収まらなければそのまま返す。
+    """
+    events = sorted(scene.events, key=lambda e: e.timestamp)
+    cur = _scene_of(events)
+    while cur.duration > max_sec and len(events) > 1:
+        if events[0].score < events[-1].score:
+            events = events[1:]
+        else:
+            events = events[:-1]
+        cur = _scene_of(events)
+    return cur
+
+
+def select_scenes(events: list[HighlightEvent], max_total_sec: float = SHORTS_MAX_SEC) -> list[Scene]:
+    """
+    Shorts に入れる場面を選ぶ。スコアの高い場面から入れ、入りきらない場面は
+    残り尺まで削って入れる（SCENE_MIN_TRIMMED_SEC 未満になるなら諦める）。時系列順で返す。
+    """
+    scenes = build_scenes(events)
+    selected: list[Scene] = []
     total = 0.0
-    for e in by_score:
-        duration = _effective_duration(e)
-        if total + duration <= max_total_sec:
-            selected.append(e)
-            total += duration
-    if not selected and by_score:
-        # 全イベントが単体で予算オーバーでも、最低1本は残す
-        selected.append(by_score[0])
-    return sorted(selected, key=lambda e: e.timestamp)
+    for sc in sorted(scenes, key=lambda s: s.score, reverse=True):
+        remaining = max_total_sec - total
+        if sc.duration > remaining:
+            if remaining < SCENE_MIN_TRIMMED_SEC:
+                continue
+            sc = trim_scene(sc, remaining)
+            if sc.duration > remaining:
+                continue
+        selected.append(sc)
+        total += sc.duration
+    if not selected and scenes:
+        # 単体でも予算オーバーなら、最高スコアの場面を削って最低1本は残す
+        selected.append(trim_scene(max(scenes, key=lambda s: s.score), max_total_sec))
+    return sorted(selected, key=lambda s: s.start)
 
 
 def hp_overlay_config() -> dict | None:
@@ -327,10 +377,10 @@ def make_shorts(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 重複除去 + スコア上位選択（合計 budget 秒以内）→ 時系列順
+    # 重なるイベントを場面にまとめ、スコア上位の場面を選ぶ（合計 budget 秒以内）→ 時系列順
     budget = shorts_budget_sec(video_path.stem)
     print(f"  尺の上限: {budget:.0f} 秒")
-    selected = select_clips(events, max_total_sec=budget)
+    selected = select_scenes(events, max_total_sec=budget)
 
     if not selected:
         raise ValueError("選択されたハイライトイベントがありません")
@@ -349,9 +399,7 @@ def make_shorts(
         plan_travel_segments,
     )
     mm_cfg = minimap_config()
-    windows = [
-        (e.timestamp - _effective_pre(e), e.timestamp + _effective_post(e)) for e in selected
-    ]
+    windows = [(sc.start, sc.end) for sc in selected]
 
     first_shot = None
     travel_after: dict[int, object] = {}
@@ -376,10 +424,9 @@ def make_shorts(
             segs = fit_travel_to_budget(segs, clips_total, budget)
             travel_after = {s.after_clip: s for s in segs}
 
-    for i, event in enumerate(selected):
-        start = event.timestamp - _effective_pre(event)
-        duration = _effective_duration(event)
-        clip_out = clips_dir / f"clip_{i:03d}_{event.timestamp:.1f}s.mp4"
+    for i, scene in enumerate(selected):
+        start, duration = scene.start, scene.duration
+        clip_out = clips_dir / f"clip_{i:03d}_{scene.start:.1f}s.mp4"
         minimap = None
         if first_shot is not None and first_shot[0] == i:
             minimap = {
@@ -390,7 +437,9 @@ def make_shorts(
                       hp_overlay=hp_overlay, minimap=minimap)
         clip_paths.append(clip_out)
         note = "（初弾マップ）" if minimap else ""
-        print(f"  clip {i+1}/{len(selected)}: {event.timestamp:.1f}s (score={event.score:.3f}) → {clip_out.name}{note}")
+        kinds = ", ".join(e.event_type for e in scene.events)
+        print(f"  clip {i+1}/{len(selected)}: {scene.start:.1f}-{scene.end:.1f}s "
+              f"({duration:.1f}s, score={scene.score:.3f}, {kinds}) → {clip_out.name}{note}")
 
         seg = travel_after.get(i)
         if seg is not None:
