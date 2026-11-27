@@ -197,3 +197,32 @@ class TestTravelFilter:
         assert "早送り" not in graph
         assert "crop=520:520:1400:560" in graph
         assert graph.endswith("[out]")
+
+
+# ---- 尺の上限と A/B テスト（2026-11-27） ----
+
+class TestShortsBudget:
+    def test_default(self, monkeypatch):
+        import src.edit_video as ev
+        monkeypatch.setattr(ev, "load_config", lambda: {})
+        assert ev.shorts_budget_sec("x") == ev.SHORTS_MAX_SEC
+
+    def test_config_value(self, monkeypatch):
+        import src.edit_video as ev
+        monkeypatch.setattr(ev, "load_config", lambda: {"shorts": {"max_total_sec": 45}})
+        assert ev.shorts_budget_sec("x") == 45
+
+    def test_ab_is_stable_and_mixes(self, monkeypatch):
+        import src.edit_video as ev
+        cfg = {"shorts": {"max_total_sec": 99, "length_test": {"enabled": True, "variants": [40, 150]}}}
+        monkeypatch.setattr(ev, "load_config", lambda: cfg)
+        stems = [f"20261127_{i:04d}_tank_map_20261127_120000" for i in range(40)]
+        picks = [ev.shorts_budget_sec(s) for s in stems]
+        assert set(picks) == {40, 150}                       # 両方に振り分けられる
+        assert picks == [ev.shorts_budget_sec(s) for s in stems]  # 同じ録画は常に同じ側
+
+    def test_ab_disabled_uses_max(self, monkeypatch):
+        import src.edit_video as ev
+        cfg = {"shorts": {"max_total_sec": 60, "length_test": {"enabled": False, "variants": [40]}}}
+        monkeypatch.setattr(ev, "load_config", lambda: cfg)
+        assert ev.shorts_budget_sec("x") == 60

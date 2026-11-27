@@ -15,6 +15,24 @@ from src.detect_highlights import HighlightEvent
 
 # Shorts 仕様
 SHORTS_MAX_SEC = 150     # 動画の合計上限秒数（Shorts 自体は最大3分まで可）
+
+
+def shorts_budget_sec(seed: str) -> float:
+    """
+    この動画の合計尺の上限（秒）。config の shorts.max_total_sec（既定 SHORTS_MAX_SEC）。
+
+    shorts.length_test.enabled なら variants から seed（録画ファイル名）のハッシュで
+    1つ選ぶ（A/B テスト。同じ時期に長短を混ぜて比べるため。2026-11-27 導入:
+    視聴は尺に関係なく16〜26秒で離脱し、尺が長いほど視聴率が下がっていた）。
+    ハッシュなので同じ録画を作り直しても同じ側になる。
+    """
+    import zlib
+    cfg = (load_config().get("shorts") or {})
+    test = cfg.get("length_test") or {}
+    variants = test.get("variants") or []
+    if test.get("enabled") and variants:
+        return float(variants[zlib.crc32(seed.encode("utf-8")) % len(variants)])
+    return float(cfg.get("max_total_sec", SHORTS_MAX_SEC))
 SHORTS_WIDTH = 1080
 SHORTS_HEIGHT = 1920
 CLIP_PRE_SEC = 3.0       # イベント前の余白
@@ -309,8 +327,10 @@ def make_shorts(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 重複除去 + スコア上位選択（合計 SHORTS_MAX_SEC 以内）→ 時系列順
-    selected = select_clips(events)
+    # 重複除去 + スコア上位選択（合計 budget 秒以内）→ 時系列順
+    budget = shorts_budget_sec(video_path.stem)
+    print(f"  尺の上限: {budget:.0f} 秒")
+    selected = select_clips(events, max_total_sec=budget)
 
     if not selected:
         raise ValueError("選択されたハイライトイベントがありません")
@@ -353,7 +373,7 @@ def make_shorts(
                 max_out_sec=tr_cfg.get("max_out_sec", 5.0),
             )
             clips_total = sum(b - a for a, b in windows)
-            segs = fit_travel_to_budget(segs, clips_total, SHORTS_MAX_SEC)
+            segs = fit_travel_to_budget(segs, clips_total, budget)
             travel_after = {s.after_clip: s for s in segs}
 
     for i, event in enumerate(selected):

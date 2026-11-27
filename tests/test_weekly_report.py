@@ -106,3 +106,38 @@ class TestFormatReport:
     def test_warns_when_no_stock(self):
         text = self._report(None)
         assert "予約ストック: 0 本" in text
+
+
+# ---- 尺別の成績（2026-11-27） ----
+
+from src.weekly_report import VideoPerf, length_breakdown
+
+
+class TestLengthBreakdown:
+    NOW = datetime.datetime(2026, 11, 27, 12, 0, tzinfo=UTC)
+
+    def _v(self, days_ago, dur, views, pct=30.0):
+        return VideoPerf(self.NOW - datetime.timedelta(days=days_ago), dur, views, pct)
+
+    def test_buckets_and_medians(self):
+        vids = [self._v(5, 25, 500, 70), self._v(6, 28, 700, 80), self._v(7, 29, 100, 60),
+                self._v(5, 100, 200, 20), self._v(6, 140, 300, 22)]
+        got = length_breakdown(vids, self.NOW)
+        assert got == [("30秒未満", 3, 500, 70), ("90秒以上", 2, 250, 21.0)]
+
+    def test_boundaries(self):
+        got = length_breakdown([self._v(5, 30, 1), self._v(5, 45, 1), self._v(5, 60, 1), self._v(5, 90, 1)], self.NOW)
+        assert [g[0] for g in got] == ["30-45秒", "45-60秒", "60-90秒", "90秒以上"]
+
+    def test_window(self):
+        vids = [self._v(1, 20, 999), self._v(40, 20, 999), self._v(10, 20, 5)]
+        assert length_breakdown(vids, self.NOW) == [("30秒未満", 1, 5, 30.0)]
+
+    def test_format_includes_section(self):
+        text = format_report(
+            channel_title="ch", now=self.NOW, current_subs=1, total_views=1, video_count=1,
+            days=[], data_through=None, published_this_week=[], stock_count=0, stock_until=None,
+            top_videos=[], length_stats=[("30秒未満", 3, 500, 70.0)], commits=[], open_todos=[],
+        )
+        assert "■ 尺別の成績" in text
+        assert "30秒未満" in text and "70.0%" in text

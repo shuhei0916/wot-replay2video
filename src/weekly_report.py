@@ -103,6 +103,38 @@ def scheduled_stock(
     return len(future), (max(future) if future else None)
 
 
+LENGTH_BUCKETS = [(0, 30, "30秒未満"), (30, 45, "30-45秒"), (45, 60, "45-60秒"),
+                  (60, 90, "60-90秒"), (90, 10**9, "90秒以上")]
+LENGTH_WINDOW_DAYS = 28   # 尺別集計の対象: この日数以内に公開された動画
+LENGTH_SETTLE_DAYS = 3    # 公開直後は再生が伸び切っていないので除く
+
+
+@dataclass
+class VideoPerf:
+    published: datetime.datetime
+    duration_sec: int
+    views: int
+    avg_view_pct: float
+
+
+def length_breakdown(videos: list[VideoPerf], now: datetime.datetime) -> list[tuple[str, int, int, float]]:
+    """
+    尺の区分ごとに (区分名, 本数, 再生の中央値, 平均視聴率の中央値) を返す（本数0の区分は省く）。
+    対象は公開から LENGTH_SETTLE_DAYS 日以上・LENGTH_WINDOW_DAYS 日以内の動画。
+    """
+    import statistics
+    lo = now - datetime.timedelta(days=LENGTH_WINDOW_DAYS)
+    hi = now - datetime.timedelta(days=LENGTH_SETTLE_DAYS)
+    target = [v for v in videos if lo <= v.published <= hi]
+    out = []
+    for a, b, name in LENGTH_BUCKETS:
+        g = [v for v in target if a <= v.duration_sec < b]
+        if g:
+            out.append((name, len(g), int(statistics.median(v.views for v in g)),
+                        statistics.median(v.avg_view_pct for v in g)))
+    return out
+
+
 def _fmt_delta(n: int) -> str:
     return f"+{n}" if n > 0 else str(n)
 
@@ -120,6 +152,7 @@ def format_report(
     stock_count: int,
     stock_until: datetime.datetime | None,
     top_videos: list[tuple[str, int, float]],
+    length_stats: list[tuple[str, int, int, float]] | None = None,
     commits: list[str],
     open_todos: list[str],
 ) -> str:
@@ -176,6 +209,13 @@ def format_report(
         lines += ["", "■ 直近7日の再生上位"]
         for title, views, pct in top_videos:
             lines.append(f"  {views:>5,} 回 / 平均視聴率 {pct:.0f}% : {title}")
+
+    if length_stats:
+        lines += ["", f"■ 尺別の成績（公開{LENGTH_SETTLE_DAYS}〜{LENGTH_WINDOW_DAYS}日前の動画）",
+                  "  本数 | 再生(中央値) | 平均視聴率(中央値) | 尺"]
+        for name, n, views, pct in length_stats:
+            # 尺の区分名は全角混じりで幅がそろわないため末尾に置く
+            lines.append(f"  {n:>4} | {views:>12,} | {pct:>17.1f}% | {name}")
 
     lines += ["", "■ 開発の進捗（直近7日のコミット）"]
     lines += [f"  - {c}" for c in commits] or ["  （コミットなし）"]
@@ -251,7 +291,7 @@ def _fetch_all_uploads(yt, uploads_playlist: str) -> list[dict]:
             break
     videos = []
     for i in range(0, len(ids), 50):
-        r = yt.videos().list(part="snippet,status,statistics", id=",".join(ids[i:i + 50])).execute()
+        r = yt.videos().list(part="snippet,status,statistics,contentDetails", id=",".join(ids[i:i + 50])).execute()
         videos += r.get("items", [])
     return videos
 
@@ -309,6 +349,27 @@ def build_report(now: datetime.datetime | None = None) -> str:
     titles = {v["id"]: v["snippet"]["title"] for v in videos}
     top_videos = [(titles.get(r[0], r[0]), int(r[1]), float(r[2])) for r in top.get("rows", [])]
 
+    from src.collect_titles import parse_iso_duration
+    perf_rows = ya.reports().query(
+        ids="channel==MINE",
+        startDate=(today - datetime.timedelta(days=LENGTH_WINDOW_DAYS + 1)).isoformat(),
+        endDate=today.isoformat(),
+        metrics="views,averageViewPercentage", dimensions="video", sort="-views", maxResults=200,
+    ).execute().get("rows", [])
+    perf = {r[0]: (int(r[1]), float(r[2])) for r in perf_rows}
+    perfs = []
+    for v in videos:
+        if v["status"].get("privacyStatus") != "public":
+            continue
+        d = parse_iso_duration((v.get("contentDetails") or {}).get("duration", ""))
+        if d is None:
+            continue
+        views, pct = perf.get(v["id"], (0, 0.0))
+        pub = datetime.datetime.fromisoformat(v["snippet"]["publishedAt"].replace("Z", "+00:00"))
+        perfs.append(VideoPerf(pub, d, views, pct))
+    # Analytics は2〜3日遅れなので、集計の「今」はデータの最終日にそろえる
+    length_now = datetime.datetime.combine(top_end, datetime.time(23, 59), tzinfo=JST)
+
     todo_path = PROJECT_ROOT / "todo.md"
     open_todos = open_todos_from_markdown(todo_path.read_text(encoding="utf-8")) if todo_path.exists() else []
 
@@ -324,6 +385,7 @@ def build_report(now: datetime.datetime | None = None) -> str:
         stock_count=stock_count,
         stock_until=stock_until,
         top_videos=top_videos,
+        length_stats=length_breakdown(perfs, length_now),
         commits=_git_commits(),
         open_todos=open_todos,
     )
