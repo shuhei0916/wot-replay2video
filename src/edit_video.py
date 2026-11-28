@@ -397,14 +397,15 @@ def clip_and_crop(
 def _totals_filter(totals: dict, start: float, duration: float) -> str:
     """累計表示（src.totals）のフィルタ。アイコンが取れなければ空。"""
     from src.totals import build_totals_filters
-    from src.wot_assets import ensure_battle_icons, ensure_hp_assets
+    from src.wot_assets import ensure_battle_icons, ensure_hp_assets, ensure_totals_glow
     cfg = (load_config().get("shorts") or {}).get("totals") or {}
     icons = ensure_battle_icons()
     if icons is None:
         return ""
     assets = ensure_hp_assets()
     font = assets["font"] if assets else Path("C:/Windows/Fonts/bahnschrift.ttf")
-    return build_totals_filters(totals, start, duration, icons, font, int(cfg.get("y", 392)))
+    return build_totals_filters(totals, start, duration, icons, font, int(cfg.get("y", 392)),
+                                glows=ensure_totals_glow())
 
 
 def make_shorts(

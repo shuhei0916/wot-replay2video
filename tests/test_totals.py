@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from src.totals import FLASH_COLOR, TEXT_COLOR, build_totals_filters, totals_timeline
+from src.totals import TEXT_COLOR, build_totals_filters, totals_timeline
 
 REC = 1000.0
 V10 = Path(__file__).parent / "fixtures" / "mod_v10_t29_karelia.events.json"
@@ -37,14 +37,23 @@ class TestTimeline:
 
 
 class TestFilters:
-    def test_value_changes_and_flashes(self):
+    def test_value_changes_and_glows(self):
         tl = {"damage": [(10.0, 300), (14.0, 550)], "blocked": [], "assist": []}
-        f = build_totals_filters(tl, 8.0, 10.0, ICONS, Path("w.ttf"), 392)
+        glows = [Path(f"g{i}.png") for i in range(4)]
+        f = build_totals_filters(tl, 8.0, 10.0, ICONS, Path("w.ttf"), 392, glows=glows)
         assert "text='0'" in f and "text='300'" in f and "text='550'" in f
-        assert f"fontcolor={FLASH_COLOR}" in f and f"fontcolor={TEXT_COLOR}" in f
-        assert "gte(t,2.0)*lt(t,2.5)" in f            # 増えた直後 0.5 秒は金色
-        assert f.count("movie='") == 3                # アイコン3つ
-        assert "between(t" not in f                   # 境目で前後の数字が重ならない
+        assert f"fontcolor={TEXT_COLOR}" in f and "0xffc94a" not in f   # 数字は白のまま
+        # 光: 増えた瞬間（クリップ内 2.0 秒と 6.0 秒）から 0.1 秒ごとに薄い段階へ
+        assert "gte(t,2.0)*lt(t,2.1)+gte(t,6.0)*lt(t,6.1)" in f
+        assert "gte(t,2.3)*lt(t,2.4)" in f
+        assert f.count("movie='") == 3 + 4             # アイコン3 + 光4段階（与ダメの枠だけ）
+        assert f.index("g0.png") < f.index("d.png") < f.index("drawtext")   # 光は数字とアイコンの下
+        assert "between(t" not in f
+
+    def test_no_glow_without_change(self):
+        tl = {"damage": [(1.0, 300)], "blocked": [], "assist": []}
+        f = build_totals_filters(tl, 5.0, 5.0, ICONS, Path("w.ttf"), 392, glows=[Path("g.png")])
+        assert "g.png" not in f
 
     def test_comma_formatting(self):
         tl = {"damage": [(1.0, 12345)]}

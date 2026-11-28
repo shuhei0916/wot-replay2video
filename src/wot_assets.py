@@ -238,3 +238,44 @@ def ensure_battle_icons(size: int = 56, wot: Path | None = None) -> dict | None:
     finally:
         dds_path.unlink(missing_ok=True)
     return paths
+
+
+# ---------------------------------------------------------------------------
+# 累計が増えたときの光（2026-11-28）: battleDamageLogPanel.swf に1枚だけ入っている 126×40 の
+# 柔らかい光の楕円。ゲームは値が変わると数字の後ろにこれを出し、約0.4秒で消す
+# （録画の左下 UI を 0.1 秒ごとに見て確認）。フェードは段階ごとの不透明度の PNG で表す。
+# ---------------------------------------------------------------------------
+
+GLOW_SIZE = (126, 40)
+GLOW_LEVELS = (1.0, 0.7, 0.4, 0.15)   # 0.1 秒ごとの不透明度
+_DAMAGE_LOG_SWF = "gui/flash/battleDamageLogPanel.swf"
+
+
+def ensure_totals_glow(scale: float = 2.0, wot: Path | None = None) -> list[Path] | None:
+    """光の PNG を GLOW_LEVELS の段階ぶん output/cache/<版>/ に用意してパスのリストを返す。"""
+    import cv2
+
+    from src.config import wot_client_version
+    wot = Path(wot) if wot is not None else wot_dir()
+    try:
+        version = wot_client_version()
+    except Exception:
+        version = "unknown"
+    d = CACHE_DIR / version
+    paths = [d / f"totals_glow_{i}.png" for i in range(len(GLOW_LEVELS))]
+    if all(p.exists() for p in paths):
+        return paths
+    swf = _find_member(wot, _DAMAGE_LOG_SWF)
+    if swf is None:
+        return None
+    glow = next((img for w, h, img in swf_lossless_bitmaps(swf) if (w, h) == GLOW_SIZE), None)
+    if glow is None:
+        return None
+    d.mkdir(parents=True, exist_ok=True)
+    big = cv2.resize(glow, (round(GLOW_SIZE[0] * scale), round(GLOW_SIZE[1] * scale)),
+                     interpolation=cv2.INTER_CUBIC)
+    for p, level in zip(paths, GLOW_LEVELS):
+        img = big.copy()
+        img[..., 3] = (img[..., 3].astype(np.float32) * level).clip(0, 255).astype(np.uint8)
+        cv2.imwrite(str(p), img)
+    return paths

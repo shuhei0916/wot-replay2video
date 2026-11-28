@@ -2,8 +2,8 @@
 その試合の累計（与ダメ・防いだダメ・アシスト）を画面に出す（2026-11-28）。
 
 ゲーム画面の戦果カウンターのように、動画の中で累計が増えていく。HP バーの下に
-ゲームのアイコン（交差した矢印・盾・偵察の電波）と数字を並べる。増えた直後は数字を
-少しの間だけ金色にして、増えたことが分かるようにする。
+ゲームのアイコン（交差した矢印・盾・偵察の電波）と数字を並べる。増えた直後は、ゲームと
+同じく数字の後ろに柔らかい光を出して約0.4秒で消す。
 
 データは mod v10 の戦果イベント（battle_event: DAMAGE / TANKING / RADIO・TRACK・STUN_ASSIST）。
 v10 より前の記録は damage_dealt から与ダメだけを出す。
@@ -22,8 +22,10 @@ BOX_H = 72
 ICON = 56
 FONT_SIZE = 50
 TEXT_COLOR = "0xe8e8e0"
-FLASH_COLOR = "0xffc94a"   # 増えた直後
-FLASH_SEC = 0.5
+# 増えたときの光（ゲームの battleDamageLogPanel と同じ。2倍の 252×80 を数字の少し左から置く）
+GLOW_STEP_SEC = 0.1        # 不透明度の段階ごとの秒数（4段階で約0.4秒で消える）
+GLOW_LEFT = 70             # 光の左端を数字の左端からどれだけ左に出すか（光の中心が数字の少し右に来る位置）
+GLOW_H = 80
 COLOR_BG = "black@0.6"
 
 
@@ -78,10 +80,12 @@ def _value_at(changes: list[tuple[float, int]], t: float) -> int:
 
 
 def build_totals_filters(timeline: dict, clip_start: float, clip_dur: float, icons: dict,
-                         font: Path, y: int, frame_w: int = 1080) -> str:
+                         font: Path, y: int, frame_w: int = 1080, glows: list | None = None) -> str:
     """
     1 クリップ分の累計表示の ffmpeg フィルタ（既存の映像の続きにカンマでつなげる形）。
     時間はクリップ内の秒。icons は src.wot_assets.ensure_battle_icons の戻り値。
+    glows（src.wot_assets.ensure_totals_glow: 不透明度の段階ごとの光の PNG）があれば、
+    値が増えた直後に数字の後ろへ光を出して GLOW_STEP_SEC ごとに薄くする（ゲームと同じ演出）。
     """
     from src.hp_bar import _ff_path
     kinds = [k for k in KINDS if k in timeline]
@@ -91,31 +95,35 @@ def build_totals_filters(timeline: dict, clip_start: float, clip_dur: float, ico
     x0 = (frame_w - ROW_W) // 2
     slot_w = ROW_W // len(KINDS)
     boxes, texts = [], []
+    glow_layers: list[tuple[Path, int, int, str]] = []   # (PNG, x, y, enable)
     font_s = _ff_path(font)
     for i, kind in enumerate(kinds):
         sx = x0 + i * slot_w
+        num_x = sx + 20 + ICON + 14
         boxes.append(f"drawbox=x={sx + 4}:y={y}:w={slot_w - 8}:h={BOX_H}:color={COLOR_BG}:t=fill")
         changes = timeline[kind]
-        # クリップ内で値が一定の区間と、増えた直後（金色）の区間
-        cuts = [0.0] + [round(ts - clip_start, 3) for ts, _ in changes if 0 < ts - clip_start < end] + [end]
+        bumps = [round(ts - clip_start, 3) for ts, _ in changes if 0 < ts - clip_start < end]
+        cuts = [0.0] + bumps + [end]
         for a, b in zip(cuts, cuts[1:]):
             if b <= a:
                 continue
             v = _value_at(changes, clip_start + a)
-            flash_end = min(b, a + FLASH_SEC) if a > 0 else a
-            spans = [(a, flash_end, FLASH_COLOR), (flash_end, b, TEXT_COLOR)] if flash_end > a else [(a, b, TEXT_COLOR)]
-            for s0, s1, color in spans:
-                if s1 <= s0:
-                    continue
-                texts.append(f"drawtext=fontfile='{font_s}':text='{v:,}':fontsize={FONT_SIZE}:"
-                             f"fontcolor={color}:shadowcolor=black@0.8:shadowx=2:shadowy=2:"
-                             f"x={sx + 20 + ICON + 14}:y={y}+({BOX_H}-text_h)/2:"
-                             f"enable='gte(t,{round(s0, 3)})*lt(t,{round(s1, 3)})'")
+            texts.append(f"drawtext=fontfile='{font_s}':text='{v:,}':fontsize={FONT_SIZE}:"
+                         f"fontcolor={TEXT_COLOR}:shadowcolor=black@0.8:shadowx=2:shadowy=2:"
+                         f"x={num_x}:y={y}+({BOX_H}-text_h)/2:"
+                         f"enable='gte(t,{round(a, 3)})*lt(t,{round(b, 3)})'")
+        if glows and bumps:
+            for level, png in enumerate(glows):
+                wins = "+".join(f"gte(t,{round(c + level * GLOW_STEP_SEC, 3)})*"
+                                f"lt(t,{round(c + (level + 1) * GLOW_STEP_SEC, 3)})" for c in bumps)
+                glow_layers.append((png, num_x - GLOW_LEFT, y + (BOX_H - GLOW_H) // 2, wins))
+    # 重ね順: 枠 → 光 → アイコン → 数字
     parts = [",".join(boxes) + ",null[tt0]"]
-    cur = "tt0"
-    for i, kind in enumerate(kinds):
-        sx = x0 + i * slot_w
-        parts.append(f"movie='{_ff_path(icons[kind])}',format=rgba[ti{i}]")
-        parts.append(f"[{cur}][ti{i}]overlay={sx + 20}:{y + (BOX_H - ICON) // 2}[tt{i + 1}]")
-        cur = f"tt{i + 1}"
+    cur, n = "tt0", 0
+    layers = [(png, gx, gy, f":enable='{w}'") for png, gx, gy, w in glow_layers]
+    layers += [(icons[k], x0 + i * slot_w + 20, y + (BOX_H - ICON) // 2, "") for i, k in enumerate(kinds)]
+    for png, lx, ly, enable in layers:
+        parts.append(f"movie='{_ff_path(png)}',format=rgba[ti{n}]")
+        parts.append(f"[{cur}][ti{n}]overlay={lx}:{ly}{enable}[tt{n + 1}]")
+        cur, n = f"tt{n + 1}", n + 1
     return ";".join(parts) + f";[{cur}]" + ",".join(texts)
