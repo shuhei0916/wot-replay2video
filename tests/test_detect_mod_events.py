@@ -337,7 +337,9 @@ def test_combat_summary():
         {"type": "hit_taken", "damage": 300},
     ]}
     assert combat_summary(data) == {"shots": 3, "hits": 2, "no_damage_hits": 1, "damage": 421, "kills": 1,
-                                    "blocked_hits": 0, "blind_kills": 0}
+                                    "blocked_hits": 0, "blind_kills": 0, "blocked_damage": 0,
+                                    "assist_radio": 0, "assist_track": 0, "assist_stun": 0, "spotted": 0,
+                                    "module_damage": 0}
 
 
 def test_combat_summary_matches_real_battle():
@@ -513,3 +515,17 @@ class TestBlindKills:
         from src.detect_mod_events import blind_kills
         p = Path(__file__).parent / "fixtures" / "mod_v8_t29_karelia.events.json"
         assert blind_kills(json.loads(p.read_text(encoding="utf-8"))) == []
+
+
+def test_battle_event_totals_v10_real_battle():
+    # mod v10 の実機記録（T29 / Karelia）。戦闘結果: 防いだダメ660・偵察アシスト116・発見2
+    import json
+    from pathlib import Path
+    from src.detect_mod_events import combat_summary
+    p = Path(__file__).parent / "fixtures" / "mod_v10_t29_karelia.events.json"
+    m = combat_summary(json.loads(p.read_text(encoding="utf-8")))
+    assert m["blocked_damage"] == 660
+    assert m["assist_radio"] == 116 and m["assist_track"] == 0
+    assert m["spotted"] == 2
+    assert m["module_damage"] == 3   # 操縦手負傷・砲損傷・右履帯（修理・回復は数えない）
+    assert m["damage"] == 4605 - 338 and m["kills"] == 2

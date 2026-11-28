@@ -482,6 +482,9 @@ def _print_combat_check(replay_path: Path, events_path: Path) -> None:
               f"（結果 {s.direct_hits}、うち非貫通 {m['no_damage_hits']}）/ 与ダメ {m['damage']}"
               f"（結果 {s.damage_dealt}）/ 撃破 {m['kills']}（結果 {s.kills}）"
               f" / 弾いた被弾 {m['blocked_hits']} / ブラインド撃破 {m['blind_kills']}")
+        print(f"  戦果: 防いだダメ {m['blocked_damage']}（結果 {s.damage_blocked}）/ 偵察アシスト "
+              f"{m['assist_radio']}（結果 {s.damage_assisted_radio}）/ 履帯アシスト {m['assist_track']} / "
+              f"発見 {m['spotted']}（結果 {s.spotted}）/ 自車のモジュール被害 {m['module_damage']}")
     except Exception as e:
         print(f"  mod の記録と戦闘結果の照合をスキップ: {e}")
 

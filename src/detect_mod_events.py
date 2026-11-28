@@ -304,6 +304,27 @@ def combat_summary(data: dict) -> dict:
                             if e.get("type") == "hit_received" and not e.get("damage_factor")),
         # v8: キルログにだけある自車の撃破（視認外の敵）
         "blind_kills": len(blind_kills(data)),
+        # v10: 戦果イベント（画面のリボンの元データ）の合計
+        **battle_event_totals(events),
+    }
+
+
+def battle_event_totals(events: list[dict]) -> dict:
+    """
+    mod v10 の戦果イベント（battle_event）から、防いだダメージ・アシスト・発見数・自車の
+    モジュール被害の数を合計する。details の先頭がダメージ量（unpackDamage の結果）。
+    """
+    def amount(name):
+        return sum((e["details"][0] if isinstance(e.get("details"), list) and e["details"] else 0)
+                   for e in events if e.get("type") == "battle_event" and e.get("name") == name)
+    return {
+        "blocked_damage": amount("TANKING"),
+        "assist_radio": amount("RADIO_ASSIST"),
+        "assist_track": amount("TRACK_ASSIST"),
+        "assist_stun": amount("STUN_ASSIST"),
+        "spotted": sum(1 for e in events if e.get("type") == "battle_event" and e.get("name") == "SPOTTED"),
+        "module_damage": sum(1 for e in events if e.get("type") == "module_damage"
+                             and "REPAIRED" not in str(e.get("code")) and "RESTORED" not in str(e.get("code"))),
     }
 
 
