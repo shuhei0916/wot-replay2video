@@ -2,7 +2,7 @@
 # WoT の組み込み Python は 2.7。py2.7 でコンパイルした .pyc を
 # res_mods/<version>/scripts/client/ に配置する（ソース .py は無視される）。
 """
-mod_shot_logger v9 - リプレイ再生中の射撃・被弾・与ダメージ・戦況を shot_events.json に記録する。
+mod_shot_logger v10 - リプレイ再生中の射撃・被弾・与ダメージ・戦況・戦果を shot_events.json に記録する。
 
 設計:
 - 各イベントに壁時計時刻 (epoch) を記録する。録画開始時刻(パイプライン側が
@@ -43,6 +43,14 @@ mod_shot_logger v9 - リプレイ再生中の射撃・被弾・与ダメージ�
   溜まり、毎秒ファイル全体を書き直すので、続けて遊ぶとカクつきの原因になりえた。
   BattleReplay.g_replayCtrl.isPlaying が真のときだけ記録し、普段のプレイでは何もしない。
   あわせて2試合目が始まったら記録をリセットする
+- プレイヤー側（PlayerAvatar）のフック（v10、2026-11-28）: 以前は onArenaPeriodChange を先に
+  張ろうとして、2.4.2.0 では内部名（__onArenaPeriodChange）に変わっていたため毎回失敗し、後続も
+  張れていなかった（game.log の "Avatar hook gave up"）。メソッドごとに独立して張る:
+  - battle_event: onBattleEvents（画面の戦果リボンの元データ）。種類名は BattleFeedbackCommon の
+    BATTLE_EVENT_TYPE から引き、details は unpackDamage / unpackCrits で解いて記録する
+    （アシスト・防いだダメージ量・クリティカル・発見など）
+  - battle_summary: battleEventsSummary（与ダメ・履帯／偵察／スタンのアシスト・防いだダメージの累計）
+  - module_damage: showVehicleDamageInfo のうち自車のもの（モジュール破損・乗員負傷・修理）
 - PlayerAvatar.onArenaPeriodChange フック: バトル開始 (period=3) の記録。
   personality 読み込み時点では Avatar モジュールが未初期化のため、
   BigWorld.callback で遅延リトライして張る。
@@ -127,7 +135,7 @@ def _record(kind, **extra):
 import BigWorld  # noqa: E402
 
 _write()  # ロード確認用の初期書き出し
-BigWorld.logInfo(MOD_NAME, 'v9 loaded. output -> ' + OUTPUT_PATH, None)
+BigWorld.logInfo(MOD_NAME, 'v10 loaded. output -> ' + OUTPUT_PATH, None)
 
 
 # --------------------------------------------------------------------------
@@ -317,31 +325,127 @@ except Exception as ex:
 # 未定義のため、ゲームループ開始後にリトライして張る。
 # --------------------------------------------------------------------------
 
+_BATTLE_EVENT_NAMES = None  # {値: 名前}（BattleFeedbackCommon.BATTLE_EVENT_TYPE から作る）
+
+
+def _battle_event_names():
+    global _BATTLE_EVENT_NAMES
+    if _BATTLE_EVENT_NAMES is None:
+        names = {}
+        try:
+            from BattleFeedbackCommon import BATTLE_EVENT_TYPE as BET
+            for k in dir(BET):
+                v = getattr(BET, k)
+                if k.isupper() and isinstance(v, int):
+                    names[v] = k
+        except Exception:
+            pass
+        _BATTLE_EVENT_NAMES = names
+    return _BATTLE_EVENT_NAMES
+
+
+def _simple(v):
+    """JSON にできる単純な値に変換する（タプルはリストに、それ以外は文字列に）。"""
+    if isinstance(v, (int, long, float, bool)) or v is None:
+        return v
+    if isinstance(v, (tuple, list)):
+        return [_simple(x) for x in v]
+    return str(v)
+
+
+def _unpack_details(name, details):
+    """戦果イベントの details を解く。失敗したら元の値のまま。"""
+    try:
+        from BattleFeedbackCommon import BATTLE_EVENT_TYPE as BET
+        if name in ('DAMAGE', 'RECEIVED_DAMAGE', 'TANKING', 'RADIO_ASSIST', 'TRACK_ASSIST',
+                    'STUN_ASSIST', 'SMOKE_ASSIST', 'INSPIRE_ASSIST'):
+            return _simple(BET.unpackDamage(details))
+        if name in ('CRIT', 'RECEIVED_CRIT'):
+            return _simple(BET.unpackCrits(details))
+    except Exception:
+        pass
+    return _simple(details)
+
+
+def _hook_avatar_method(cls, attr, wrap):
+    """cls.attr を wrap(orig) で置き換える。無ければ False（他のフックには影響しない）。"""
+    orig = getattr(cls, attr, None)
+    if orig is None:
+        return False
+    setattr(cls, attr, wrap(orig))
+    BigWorld.logInfo(MOD_NAME, 'PlayerAvatar.%s hook installed' % attr, None)
+    return True
+
+
+def _wrap_battle_events(orig):
+    def hooked(self, events, *args, **kwargs):
+        try:
+            names = _battle_event_names()
+            for ev in events or []:
+                get = ev.get if hasattr(ev, 'get') else (lambda k, d=None: getattr(ev, k, d))
+                etype = get('eventType')
+                name = names.get(etype, str(etype))
+                _record('battle_event', etype=etype, name=name, target=get('targetID'),
+                        count=_simple(get('count')), details=_unpack_details(name, get('details')))
+        except Exception as ex:
+            BigWorld.logWarning(MOD_NAME, 'battle events hook error: ' + str(ex), None)
+        return orig(self, events, *args, **kwargs)
+    return hooked
+
+
+def _wrap_battle_summary(orig):
+    def hooked(self, summary, *args, **kwargs):
+        try:
+            data = dict((str(k), _simple(v)) for k, v in dict(summary).items())
+            _record('battle_summary', **data)
+        except Exception as ex:
+            BigWorld.logWarning(MOD_NAME, 'battle summary hook error: ' + str(ex), None)
+        return orig(self, summary, *args, **kwargs)
+    return hooked
+
+
+def _wrap_damage_info(orig):
+    def hooked(self, vehicleID, damageIndex, extraIndex, *args, **kwargs):
+        try:
+            if vehicleID == getattr(self, 'playerVehicleID', None):
+                code, device = damageIndex, None
+                try:
+                    import constants
+                    code = constants.DAMAGE_INFO_CODES[damageIndex]
+                except Exception:
+                    pass
+                try:
+                    if extraIndex:
+                        vt = self.arena.vehicles[vehicleID]['vehicleType']
+                        device = vt.extras[extraIndex].name
+                except Exception:
+                    pass
+                _record('module_damage', code=_simple(code), device=_simple(device),
+                        attacker=_simple(args[0]) if args else None)
+        except Exception as ex:
+            BigWorld.logWarning(MOD_NAME, 'damage info hook error: ' + str(ex), None)
+        return orig(self, vehicleID, damageIndex, extraIndex, *args, **kwargs)
+    return hooked
+
+
 def _try_hook_avatar(attempt=0):
     try:
         import Avatar as _Avatar
         cls = _Avatar.PlayerAvatar  # 未初期化なら AttributeError
-
-        orig = cls.onArenaPeriodChange
-
-        def hooked(self, period, *args, **kwargs):
-            try:
-                if period == 3:  # BATTLE
-                    global _arena_start_epoch
-                    _arena_start_epoch = round(time.time(), 3)
-                    _record('battle_start')
-                    BigWorld.logInfo(MOD_NAME, 'battle started', None)
-            except Exception as ex:
-                BigWorld.logWarning(MOD_NAME, 'period hook error: ' + str(ex), None)
-            return orig(self, period, *args, **kwargs)
-
-        cls.onArenaPeriodChange = hooked
-        BigWorld.logInfo(MOD_NAME, 'Avatar hook installed (attempt %d)' % attempt, None)
     except Exception:
         if attempt < 150:  # 最大 5 分リトライ
             BigWorld.callback(2.0, lambda: _try_hook_avatar(attempt + 1))
         else:
-            BigWorld.logWarning(MOD_NAME, 'Avatar hook gave up', None)
+            BigWorld.logWarning(MOD_NAME, 'Avatar hook gave up (class not found)', None)
+        return
+    for attr, wrap in (('onBattleEvents', _wrap_battle_events),
+                       ('battleEventsSummary', _wrap_battle_summary),
+                       ('showVehicleDamageInfo', _wrap_damage_info)):
+        try:
+            if not _hook_avatar_method(cls, attr, wrap):
+                BigWorld.logWarning(MOD_NAME, 'PlayerAvatar.%s not found' % attr, None)
+        except Exception as ex:
+            BigWorld.logWarning(MOD_NAME, 'PlayerAvatar.%s hook failed: %s' % (attr, ex), None)
 
 
 BigWorld.callback(2.0, lambda: _try_hook_avatar())
@@ -619,4 +723,4 @@ def _tick():
 
 
 BigWorld.callback(1.0, _tick)
-BigWorld.logInfo(MOD_NAME, 'v9 auto-shoot / camera watcher started', None)
+BigWorld.logInfo(MOD_NAME, 'v10 auto-shoot / camera watcher started', None)
