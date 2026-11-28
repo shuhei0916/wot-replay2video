@@ -143,3 +143,18 @@ class TestRealBattle:
         assert any(a <= peak_t <= b for a, b in segs)
         out = plot_curve(c, segs, th, tmp_path / "heat.png")
         assert out.exists() and out.stat().st_size > 1000
+
+
+def test_blind_kill_adds_heat_with_average_damage():
+    from src.heat import XP_PER_DAMAGE, XP_PER_KILL
+    data = {"events": [
+        {"type": "arena_info", "player_vehicle": 7, "epoch": REC},
+        {"type": "hit_dealt", "damage_factor": 50, "epoch": REC + 10},
+        {"type": "damage_dealt", "target": 1, "damage": 300, "killed": False, "reason": 0, "epoch": REC + 10},
+        {"type": "damage_dealt", "target": 1, "damage": 100, "killed": False, "reason": 0, "epoch": REC + 20},
+        {"type": "vehicle_killed", "target": 2, "attacker": 7, "reason": 0, "epoch": REC + 40},
+        {"type": "vehicle_killed", "target": 3, "attacker": 9, "reason": 0, "epoch": REC + 40},  # 他人の撃破
+    ]}
+    blind = [h for h in heat_inputs(data, REC) if h.kind == "blind_kill"]
+    assert len(blind) == 1 and blind[0].timestamp == 40.0
+    assert blind[0].xp == XP_PER_DAMAGE * 200 + XP_PER_KILL   # 平均ダメ200 + 撃破

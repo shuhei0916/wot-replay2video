@@ -102,7 +102,32 @@ def heat_inputs(data: dict, rec_start_epoch: float) -> list[HeatInput] | None:
             dmg = float(e.get("damage") or 0)
             if dmg > 0:
                 out.append(HeatInput(ts, DRAMA_PER_DAMAGE_TAKEN * dmg, "taken"))
+    out += _blind_kill_inputs(data, rec_start_epoch)
     return sorted(out, key=lambda h: h.timestamp)
+
+
+def _blind_kill_inputs(data: dict, rec_start_epoch: float) -> list[HeatInput]:
+    """
+    視認外の敵の撃破（src.detect_mod_events.blind_kills）の熱。ダメージ量は届いていないので、
+    その試合で自車が射撃で与えた1発あたりの平均ダメージで代用する（無ければ撃破の経験値だけ）。
+    時刻はキルログの時刻（撃破の瞬間）。
+    """
+    from src.detect_mod_events import blind_kills
+    kills = blind_kills(data)
+    if not kills:
+        return []
+    dealt = [float(e.get("damage") or 0) for e in data.get("events", [])
+             if e.get("type") == "damage_dealt" and e.get("reason", 0) in (0, None)]
+    avg = sum(dealt) / len(dealt) if dealt else 0.0
+    out = []
+    for e in kills:
+        try:
+            ts = round(float(e["epoch"]) - rec_start_epoch, 2)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if ts >= 0:
+            out.append(HeatInput(ts, XP_PER_DAMAGE * avg + XP_PER_KILL + DRAMA_KILL, "blind_kill"))
+    return out
 
 
 def xp_reference(type_comp_descr: int | None) -> float:
@@ -219,7 +244,7 @@ def select_segments(curve: HeatCurve, max_total: float, min_total: float = MIN_T
 # ---------------------------------------------------------------------------
 
 _KIND_COLORS = {  # BGR
-    "kill": (60, 60, 230), "damage": (40, 170, 255), "hit": (40, 200, 255),
+    "kill": (60, 60, 230), "blind_kill": (200, 60, 200), "damage": (40, 170, 255), "hit": (40, 200, 255),
     "no_damage_hit": (200, 200, 200), "taken": (230, 140, 60),
 }
 
@@ -256,12 +281,12 @@ def plot_curve(curve: HeatCurve, segments: list[tuple[float, float]], threshold:
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 200), 1, cv2.LINE_AA)
     for hi in curve.inputs:
         color = _KIND_COLORS.get(hi.kind, (120, 120, 120))
-        cv2.circle(img, (x(hi.timestamp), pad_t + h - 6), 5 if hi.kind == "kill" else 3, color, -1)
+        cv2.circle(img, (x(hi.timestamp), pad_t + h - 6), 5 if hi.kind in ("kill", "blind_kill") else 3, color, -1)
     cv2.rectangle(img, (pad_l, pad_t), (pad_l + w, pad_t + h), (0, 0, 0), 1)
     total = _total(segments)
     cv2.putText(img, f"heat (1.0 = avg battle combat XP {curve.xp_ref:.0f})   "
                      f"selected {len(segments)} segments / {total:.1f}s   "
-                     f"dots: red=kill orange=damage gray=no-pen blue=taken",
+                     f"dots: red=kill purple=blind kill orange=damage gray=no-pen blue=taken",
                 (pad_l, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
     out_path = Path(out_path)
     cv2.imwrite(str(out_path), img)

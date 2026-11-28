@@ -302,4 +302,27 @@ def combat_summary(data: dict) -> dict:
         # v8: 自車への命中のうち装甲で弾いたもの
         "blocked_hits": sum(1 for e in events
                             if e.get("type") == "hit_received" and not e.get("damage_factor")),
+        # v8: キルログにだけある自車の撃破（視認外の敵）
+        "blind_kills": len(blind_kills(data)),
     }
+
+
+def blind_kills(data: dict) -> list[dict]:
+    """
+    視認外の敵の撃破（ブラインドショット等）を mod v8 のキルログから拾う。
+
+    視認されていない敵はクライアントに車両が無いため HP の変化が届かず、damage_dealt に
+    撃破が残らない。キルログ（vehicle_killed）は視認外でも必ず出るので、
+    「撃破者が自車」かつ「damage_dealt に同じ相手の撃破が無い」ものをブラインド撃破とする。
+    撃破者で絞るので、同じ時刻に別の場所で他の車両が撃破したものは拾わない。
+    自車が撃破された記録（相手が自車）は除く。v7 以前の記録（arena_info が無い）は空。
+    """
+    events = data.get("events", [])
+    info = next((e for e in events if e.get("type") == "arena_info"), None)
+    me = info.get("player_vehicle") if info else None
+    if me is None:
+        return []
+    seen = {e.get("target") for e in events if e.get("type") == "damage_dealt" and e.get("killed")}
+    return [e for e in events
+            if e.get("type") == "vehicle_killed" and e.get("attacker") == me
+            and e.get("target") != me and e.get("target") not in seen]

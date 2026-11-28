@@ -337,7 +337,7 @@ def test_combat_summary():
         {"type": "hit_taken", "damage": 300},
     ]}
     assert combat_summary(data) == {"shots": 3, "hits": 2, "no_damage_hits": 1, "damage": 421, "kills": 1,
-                                    "blocked_hits": 0}
+                                    "blocked_hits": 0, "blind_kills": 0}
 
 
 def test_combat_summary_matches_real_battle():
@@ -452,3 +452,64 @@ def test_combat_summary_v8_real_battle():
     info = next(e for e in events if e["type"] == "arena_info")
     assert len(info["vehicles"]) == 30 and info["player_team"] in (1, 2)
     assert len(data["others"]) > 0
+
+
+# ---- ブラインド撃破（視認外の敵の撃破。2026-11-28） ----
+
+class TestBlindKills:
+    ME = 100
+
+    def _data(self, events):
+        info = {"type": "arena_info", "player_vehicle": self.ME, "player_team": 1, "vehicles": {}}
+        return {"events": [dict(info, epoch=REC_START)] + [dict(e, epoch=REC_START + e["t"]) for e in events]}
+
+    def test_kill_feed_only_kill_by_me_is_blind(self):
+        from src.detect_mod_events import blind_kills
+        data = self._data([
+            {"t": 10, "type": "shot"},
+            {"t": 11, "type": "vehicle_killed", "target": 201, "attacker": self.ME, "reason": 0},
+        ])
+        assert [e["target"] for e in blind_kills(data)] == [201]
+
+    def test_kill_elsewhere_at_same_time_is_not_picked(self):
+        # ユーザー懸念: 射撃と同時刻にマップの別の場所で他の車両が撃破したもの → 撃破者が違うので拾わない
+        from src.detect_mod_events import blind_kills
+        data = self._data([
+            {"t": 10, "type": "shot"},
+            {"t": 10.5, "type": "vehicle_killed", "target": 202, "attacker": 555, "reason": 0},
+        ])
+        assert blind_kills(data) == []
+
+    def test_visible_kill_is_not_blind(self):
+        from src.detect_mod_events import blind_kills
+        data = self._data([
+            {"t": 10, "type": "damage_dealt", "target": 203, "damage": 150, "killed": True, "reason": 0},
+            {"t": 10, "type": "vehicle_killed", "target": 203, "attacker": self.ME, "reason": 0},
+        ])
+        assert blind_kills(data) == []
+
+    def test_final_blow_unseen_after_visible_damage_is_blind(self):
+        # 見えている間に削り、見えなくなってから撃破 → 撃破は damage_dealt に残らないのでブラインド扱い
+        from src.detect_mod_events import blind_kills
+        data = self._data([
+            {"t": 10, "type": "damage_dealt", "target": 204, "damage": 300, "killed": False, "reason": 0},
+            {"t": 30, "type": "vehicle_killed", "target": 204, "attacker": self.ME, "reason": 0},
+        ])
+        assert [e["target"] for e in blind_kills(data)] == [204]
+
+    def test_my_own_death_is_ignored(self):
+        from src.detect_mod_events import blind_kills
+        data = self._data([{"t": 50, "type": "vehicle_killed", "target": self.ME, "attacker": self.ME, "reason": 3}])
+        assert blind_kills(data) == []
+
+    def test_v7_without_arena_info_returns_empty(self):
+        from src.detect_mod_events import blind_kills
+        assert blind_kills({"events": [{"type": "vehicle_killed", "target": 1, "attacker": 2, "epoch": 1}]}) == []
+
+    def test_real_v8_battle_has_no_blind_kill(self):
+        # T29 / Karelia: 撃破2はどちらも見えていた（取りこぼした1発は撃破ではない）
+        import json
+        from pathlib import Path
+        from src.detect_mod_events import blind_kills
+        p = Path(__file__).parent / "fixtures" / "mod_v8_t29_karelia.events.json"
+        assert blind_kills(json.loads(p.read_text(encoding="utf-8"))) == []
