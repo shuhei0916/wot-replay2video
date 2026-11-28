@@ -2,7 +2,7 @@
 # WoT の組み込み Python は 2.7。py2.7 でコンパイルした .pyc を
 # res_mods/<version>/scripts/client/ に配置する（ソース .py は無視される）。
 """
-mod_shot_logger v8 - リプレイ再生中の射撃・被弾・与ダメージ・戦況を shot_events.json に記録する。
+mod_shot_logger v9 - リプレイ再生中の射撃・被弾・与ダメージ・戦況を shot_events.json に記録する。
 
 設計:
 - 各イベントに壁時計時刻 (epoch) を記録する。録画開始時刻(パイプライン側が
@@ -38,6 +38,11 @@ mod_shot_logger v8 - リプレイ再生中の射撃・被弾・与ダメージ�
   - arena_info: 試合開始時に1回、全車両の team / tier / class / name と自チーム
   - vehicle_killed: 全車両の撃破（キルログ。arena.onVehicleKilled）。残り台数の推移が分かる
   - others: 自車以外で見えている車両の位置（2秒ごと [epoch, vid, x, z]）
+- リプレイ再生中だけ記録する（v9、2026-11-28）: mod は personality モジュールの差し替えで
+  WoT 起動のたびに読み込まれるため、普段のプレイ中も記録し続けていた。記録は試合をまたいで
+  溜まり、毎秒ファイル全体を書き直すので、続けて遊ぶとカクつきの原因になりえた。
+  BattleReplay.g_replayCtrl.isPlaying が真のときだけ記録し、普段のプレイでは何もしない。
+  あわせて2試合目が始まったら記録をリセットする
 - PlayerAvatar.onArenaPeriodChange フック: バトル開始 (period=3) の記録。
   personality 読み込み時点では Avatar モジュールが未初期化のため、
   BigWorld.callback で遅延リトライして張る。
@@ -86,7 +91,33 @@ def _write():
         pass
 
 
+def _replay_playing():
+    """リプレイ再生中か（普段のプレイ中は録画側の g_replayCtrl はあっても isPlaying は偽）。"""
+    try:
+        import BattleReplay
+        rc = BattleReplay.g_replayCtrl
+        return rc is not None and bool(getattr(rc, 'isPlaying', False))
+    except Exception:
+        return False
+
+
+def _reset_log():
+    """2試合目以降の開始時に、前の試合の記録を捨てる（v9）。"""
+    global _death_recorded, _last_known_health
+    del _events[:]
+    del _positions[:]
+    del _others[:]
+    _death_recorded = False
+    _last_known_health = None
+    try:
+        _vehicle_info_cache.clear()
+    except NameError:
+        pass
+
+
 def _record(kind, **extra):
+    if not _replay_playing():
+        return  # 普段のプレイでは記録しない（v9）
     ev = {'epoch': round(time.time(), 3), 'type': kind}
     ev.update(extra)
     _events.append(ev)
@@ -96,7 +127,7 @@ def _record(kind, **extra):
 import BigWorld  # noqa: E402
 
 _write()  # ロード確認用の初期書き出し
-BigWorld.logInfo(MOD_NAME, 'v8 loaded. output -> ' + OUTPUT_PATH, None)
+BigWorld.logInfo(MOD_NAME, 'v9 loaded. output -> ' + OUTPUT_PATH, None)
 
 
 # --------------------------------------------------------------------------
@@ -337,7 +368,7 @@ def _own_position():
 
 def _sample_position():
     try:
-        pos = _own_position()
+        pos = _own_position() if _replay_playing() else None
         if pos is not None:
             _positions.append([round(time.time(), 3), pos[0], pos[1]])
             _write()
@@ -383,8 +414,10 @@ def _watch_arena():
         player = BigWorld.player()
         arena = getattr(player, 'arena', None)
         pid = getattr(player, 'playerVehicleID', None)
-        if arena is not None and pid is not None:
+        if arena is not None and pid is not None and _replay_playing():
             if _arena_hooked is not arena:
+                if _arena_hooked is not None:
+                    _reset_log()   # 2試合目以降（1試合目の記録はロード中のものも残す）
                 _arena_hooked = arena
                 arena.onVehicleKilled += _on_vehicle_killed
                 vehicles = {}
@@ -586,4 +619,4 @@ def _tick():
 
 
 BigWorld.callback(1.0, _tick)
-BigWorld.logInfo(MOD_NAME, 'v8 auto-shoot / camera watcher started', None)
+BigWorld.logInfo(MOD_NAME, 'v9 auto-shoot / camera watcher started', None)
