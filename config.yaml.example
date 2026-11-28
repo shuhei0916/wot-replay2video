@@ -61,6 +61,7 @@ shorts:
     enabled: true
     mode: render             # render: mod の記録から描き直す（2026-11-28〜）/ crop: HUD を切り出して拡大
                              # （mod の記録が無い録画は自動で crop）
+    mesh: true               # render 時に WoT の網目模様を重ねる（クライアントから output/cache に取り出す）
     src: { x: 3, y: 873, w: 224, h: 18 }   # 1920x1080 元フレーム内のバー矩形（HUDスケール変更時は要再計測）
     dst: { w: 874, y: 300 }                # 出力1080x1920での表示幅と上端Y（中央寄せ、高さはアスペクト比維持）
   minimap:                   # ミニマップ表示（ポジション学習用）。src は 1920x1080 元フレーム内の矩形

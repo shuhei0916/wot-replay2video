@@ -108,3 +108,19 @@ class TestHpColor:
     def test_continuous_red_increases_as_hp_drops(self):
         reds = [int(hp_color(r / 100)[2:4], 16) for r in range(100, 37, -5)]
         assert reds == sorted(reds)
+
+
+def test_under_mesh_color_is_brighter_to_compensate():
+    from src.hp_bar import MESH_CENTER_ALPHA
+    plain, under = hp_color(1.0), hp_color(1.0, under_mesh=True)
+    g_plain, g_under = int(plain[4:6], 16), int(under[4:6], 16)
+    assert g_under == round(g_plain / (1 - MESH_CENTER_ALPHA))
+
+
+def test_mesh_overlay_in_filter(tmp_path):
+    mesh = tmp_path / "hp_mesh.png"
+    mesh.write_bytes(b"x")
+    f = build_hp_bar_filters(HpTimeline(1000, []), 0.0, 5.0, DST, mesh_path=mesh)
+    assert "movie='" in f and "flags=neighbor" in f and "[hpb][hpm]overlay=107:304" in f
+    assert f.index("overlay=107:304") < f.index("drawtext")      # 数値は網目の上
+    assert f"color={hp_color(1.0, under_mesh=True)}" in f

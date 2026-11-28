@@ -103,26 +103,45 @@ def hp_timeline_from_events(data: dict, rec_start: float, max_hp: float | None) 
     return HpTimeline(float(max_hp), changes)
 
 
-def hp_color(ratio: float) -> str:
-    """残り HP の割合（0〜1）の色を ffmpeg の色指定（0xRRGGBB）で返す。"""
+# 網目模様がバー中央を平均どれだけ暗くするか（hp_mesh.png の中央部の平均不透明度）。
+# HP_COLOR_STOPS は網目込みの見た目を測った値なので、網目を重ねるときは塗りをこの分だけ
+# 明るくして、重ねた結果がゲームの見た目と同じになるようにする
+MESH_CENTER_ALPHA = 0.358
+
+
+def hp_color(ratio: float, under_mesh: bool = False) -> str:
+    """
+    残り HP の割合（0〜1）の色を ffmpeg の色指定（0xRRGGBB）で返す。
+    under_mesh=True なら網目模様を重ねる前提の塗り色（MESH_CENTER_ALPHA の分だけ明るい）。
+    """
     ratio = max(0.0, min(1.0, ratio))
+    rgb = list(HP_COLOR_STOPS[-1][1])
     for (r_hi, c_hi), (r_lo, c_lo) in zip(HP_COLOR_STOPS, HP_COLOR_STOPS[1:]):
         if r_lo <= ratio <= r_hi:
             k = 0.0 if r_hi == r_lo else (ratio - r_lo) / (r_hi - r_lo)
-            rgb = [round(lo + (hi - lo) * k) for lo, hi in zip(c_lo, c_hi)]
-            return "0x" + "".join(f"{v:02x}" for v in rgb)
-    return "0x" + "".join(f"{v:02x}" for v in HP_COLOR_STOPS[-1][1])
+            rgb = [lo + (hi - lo) * k for lo, hi in zip(c_lo, c_hi)]
+            break
+    if under_mesh:
+        rgb = [v / (1 - MESH_CENTER_ALPHA) for v in rgb]
+    return "0x" + "".join(f"{min(255, round(v)):02x}" for v in rgb)
 
 
 def _fmt(v: float) -> str:
     return f"{int(round(v)):,}"
 
 
+def _ff_path(path: Path) -> str:
+    """ffmpeg のフィルタ引数に入れるパス（C: のコロンをエスケープ）。"""
+    return str(Path(path).resolve()).replace("\\", "/").replace(":", "\\:")
+
+
 def build_hp_bar_filters(timeline: HpTimeline, clip_start: float, clip_dur: float,
-                         dst: dict, frame_w: int = 1080) -> str:
+                         dst: dict, frame_w: int = 1080, mesh_path: Path | None = None) -> str:
     """
-    1 クリップ分の HP バーを描く ffmpeg フィルタ（drawbox / drawtext をカンマでつないだもの）。
-    時間はクリップ内の秒（0〜clip_dur）。dst は shorts.hp_overlay.dst（w: 幅, y: 上端）。
+    1 クリップ分の HP バーを描く ffmpeg フィルタ。時間はクリップ内の秒（0〜clip_dur）。
+    dst は shorts.hp_overlay.dst（w: 幅, y: 上端）。
+    mesh_path（WoT の網目模様。src.wot_assets.ensure_hp_mesh）があれば塗りの上に重ねて
+    ゲームと同じ質感にする（数値はその上に描く）。
     """
     w = int(dst["w"])
     x0 = (frame_w - w) // 2
@@ -168,14 +187,21 @@ def build_hp_bar_filters(timeline: HpTimeline, clip_start: float, clip_dur: floa
             if dw > 0:
                 f.append(f"drawbox=x={inner_x + wa}:y={inner_y}:w={dw}:h={inner_h}:"
                          f"color={COLOR_DRAIN}:t=fill:enable='between(t,{a},{min(b, end)})'")
-    # 残り HP と数値
+    # 残り HP の塗り
+    texts = []
     for a, b, hp in segs:
         win = f"enable='between(t,{round(a, 3)},{round(b, 3)})'"
         wh = width(hp)
         if wh > 0:
             f.append(f"drawbox=x={inner_x}:y={inner_y}:w={wh}:h={inner_h}:"
-                     f"color={hp_color(hp / m)}:t=fill:{win}")
-        f.append(f"drawtext=fontfile='{FONT}':text='{_fmt(hp)} / {_fmt(m)}':fontsize={FONT_SIZE}:"
-                 f"fontcolor=white:borderw=3:bordercolor=black@0.8:"
-                 f"x={x0}+({w}-text_w)/2:y={y0}+({BAR_H}-text_h)/2:{win}")
-    return ",".join(f)
+                     f"color={hp_color(hp / m, under_mesh=mesh_path is not None)}:t=fill:{win}")
+        texts.append(f"drawtext=fontfile='{FONT}':text='{_fmt(hp)} / {_fmt(m)}':fontsize={FONT_SIZE}:"
+                     f"fontcolor=white:borderw=3:bordercolor=black@0.8:"
+                     f"x={x0}+({w}-text_w)/2:y={y0}+({BAR_H}-text_h)/2:{win}")
+    if mesh_path is None:
+        return ",".join(f + texts)
+    # 網目模様（半透明の黒い市松）を塗りの上に重ね、数値はその上に描く。
+    # 市松の目が崩れないよう最近傍で拡大する
+    return (",".join(f) + "[hpb];"
+            f"movie='{_ff_path(mesh_path)}',scale={inner_w}:{inner_h}:flags=neighbor,format=rgba[hpm];"
+            f"[hpb][hpm]overlay={inner_x}:{inner_y}," + ",".join(texts))
