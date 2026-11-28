@@ -38,7 +38,6 @@ def totals_timeline(data: dict, rec_start: float) -> dict[str, list[tuple[float,
     has_battle_events = any(e.get("type") == "battle_event" for e in events)
     out: dict[str, list[tuple[float, int]]] = {k: [] for k in (KINDS if has_battle_events else ("damage",))}
     acc = {k: 0 for k in out}
-    assist_by: dict[str, int] = {}
     for e in events:
         if has_battle_events:
             if e.get("type") != "battle_event":
@@ -58,13 +57,6 @@ def totals_timeline(data: dict, rec_start: float) -> dict[str, list[tuple[float,
             continue
         acc[kind] += int(amount)
         out[kind].append((ts, acc[kind]))
-        if kind == "assist":
-            assist_by[e.get("name")] = assist_by.get(e.get("name"), 0) + int(amount)
-    if "assist" in out:
-        # アシストのアイコンは、その試合で一番多いアシストの種類にする（ゲームも種類ごとのアイコン）
-        top = max(assist_by, key=assist_by.get) if assist_by else "RADIO_ASSIST"
-        out["_assist_icon"] = {"RADIO_ASSIST": "assist_radio", "TRACK_ASSIST": "assist_track",
-                               "STUN_ASSIST": "assist_stun"}.get(top, "assist_radio")
     return out
 
 
@@ -129,11 +121,7 @@ def build_totals_filters(timeline: dict, clip_start: float, clip_dur: float, ico
     parts = [",".join(boxes) + ",null[tt0]"]
     cur, n = "tt0", 0
     layers = [(png, gx, gy, f":enable='{w}'") for png, gx, gy, w in glow_layers]
-    def icon_of(kind):
-        if kind == "assist":
-            return icons.get(timeline.get("_assist_icon", "assist_radio")) or icons.get("assist_radio")
-        return icons[kind]
-    layers += [(icon_of(k), x0 + i * slot_w + 20, y + (BOX_H - ICON) // 2, "") for i, k in enumerate(kinds)]
+    layers += [(icons[k], x0 + i * slot_w + 20, y + (BOX_H - ICON) // 2, "") for i, k in enumerate(kinds)]
     for png, lx, ly, enable in layers:
         parts.append(f"movie='{_ff_path(png)}',format=rgba[ti{n}]")
         parts.append(f"[{cur}][ti{n}]overlay={lx}:{ly}{enable}[tt{n + 1}]")

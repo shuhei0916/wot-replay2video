@@ -170,15 +170,7 @@ def ensure_hp_assets(wot: Path | None = None) -> dict | None:
 #   ribbonsAssistSpot（アシスト: 偵察の電波）
 # ---------------------------------------------------------------------------
 
-ICON_NAMES = {"damage": "damageDealt", "blocked": "damageBlockedByArmor",
-              "assist_radio": "ribbonsAssistSpot", "assist_track": "ribbonsAssistTrack",
-              "assist_stun": "ribbonsAssistStun"}
-# ゲームの左下の累計表示に合わせた色付け（2026-11-28 に録画の左下 UI を見て合わせた）:
-# 与ダメ = 白い素材を黄緑に（周りのぼかしが緑の四角に、芯が明るい黄緑になる）、
-# 防いだダメ = 盾の縁は白、内側は濃い灰色。アシストの素材は元から緑なのでそのまま
-DAMAGE_TINT_DARK = (100, 165, 25)    # RGB: ぼかしの部分
-DAMAGE_TINT_LIGHT = (220, 245, 140)  # RGB: 芯の部分
-SHIELD_INNER = (62, 64, 62)          # RGB: 盾の内側
+ICON_NAMES = {"damage": "damageDealt", "blocked": "damageBlockedByArmor", "assist": "ribbonsAssistSpot"}
 
 
 def _trim_alpha(img, threshold: int = 12):
@@ -189,38 +181,6 @@ def _trim_alpha(img, threshold: int = 12):
     if len(xs) == 0:
         return img
     return img[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
-
-
-def _tint_damage(img):
-    """白い与ダメのアイコンを、明るさに応じて濃い緑〜明るい黄緑に塗る（アルファはそのまま）。"""
-    out = img.copy()
-    lum = img[..., :3].astype(np.float32).mean(axis=2, keepdims=True) / 255.0
-    dark = np.array(DAMAGE_TINT_DARK[::-1], np.float32)
-    light = np.array(DAMAGE_TINT_LIGHT[::-1], np.float32)
-    k = np.clip((lum - 0.3) / 0.6, 0, 1)
-    out[..., :3] = (dark * (1 - k) + light * k).clip(0, 255).astype(np.uint8)
-    # 周りの薄いぼかしを強めて、ゲームのような緑の四角い光にする
-    a = img[..., 3].astype(np.float32) / 255.0
-    out[..., 3] = (np.sqrt(a) * 255).clip(0, 255).astype(np.uint8)
-    return out
-
-
-def _shield_outline(img):
-    """盾のアイコンを「白い縁 + 濃い灰色の内側」にする（ゲームの表示に合わせる）。"""
-    import cv2
-    out = img.copy()
-    solid = (img[..., 3] > 128).astype(np.uint8)
-    # 素材の内側には透明な模様があるので、外形の輪郭で塗りつぶした形を盾とする
-    contours, _ = cv2.findContours(solid, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    shape = np.zeros_like(solid)
-    cv2.drawContours(shape, contours, -1, 1, thickness=cv2.FILLED)
-    k = max(3, round(min(img.shape[:2]) * 0.16))
-    inner = cv2.erode(shape, np.ones((k, k), np.uint8)).astype(bool)
-    body = shape.astype(bool)
-    out[body & ~inner, :3] = 235
-    out[inner, :3] = SHIELD_INNER[::-1]
-    out[body, 3] = 255
-    return out
 
 
 def _fit_square(img, size: int):
@@ -273,10 +233,6 @@ def ensure_battle_icons(size: int = 56, wot: Path | None = None) -> dict | None:
                 return None
             img = cv2.imread(str(raw), cv2.IMREAD_UNCHANGED)
             img = _trim_alpha(img)  # 元画像は透明な余白が広く、そのまま縮めると小さく見える
-            if kind == "damage":
-                img = _tint_damage(img)
-            elif kind == "blocked":
-                img = _shield_outline(img)
             cv2.imwrite(str(paths[kind]), _fit_square(img, size))
             raw.unlink(missing_ok=True)
     finally:
