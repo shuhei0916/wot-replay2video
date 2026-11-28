@@ -363,6 +363,14 @@ def _load_hp_timeline(recording_path: Path, replay_path: Path | None):
     return load_hp_timeline(recording_path, max_hp)
 
 
+def _load_totals(recording_path: Path):
+    """累計表示（src.totals）の推移。shorts.totals.enabled が false なら None。"""
+    if not (load_config().get("shorts", {}).get("totals") or {}).get("enabled", True):
+        return None
+    from src.totals import load_totals
+    return load_totals(recording_path)
+
+
 def make_highlight_shorts(recording_path: Path, replay_path: Path | None = None) -> Path | None:
     """
     録画からハイライトを検出して Shorts 動画を生成する。
@@ -383,7 +391,8 @@ def make_highlight_shorts(recording_path: Path, replay_path: Path | None = None)
     from src.minimap import load_positions
     make_shorts(recording_path, events, shorts_path, positions=load_positions(recording_path),
                 heat=_load_heat_curve(recording_path, replay_path),
-                hp_timeline=_load_hp_timeline(recording_path, replay_path))
+                hp_timeline=_load_hp_timeline(recording_path, replay_path),
+                totals=_load_totals(recording_path))
     return shorts_path
 
 

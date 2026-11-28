@@ -65,8 +65,8 @@ class TestFilters:
     def test_hit_inside_clip_splits_and_drains(self):
         tl = HpTimeline(1000, [(105.0, 400.0)])
         f = build_hp_bar_filters(tl, 103.0, 6.0, DST)
-        assert "text='1,000 / 1,000':" in f and "between(t,0.0,2.0)" in f
-        assert "text='400 / 1,000':" in f and "between(t,2.0,6.0)" in f
+        assert "text='1,000 / 1,000':" in f and "gte(t,0.0)*lt(t,2.0)" in f
+        assert "text='400 / 1,000':" in f and "gte(t,2.0)*lt(t,6.0)" in f
         assert COLOR_DRAIN in f                       # 削られた分が遅れて減る
         assert f"color={hp_color(0.4)}" in f
 

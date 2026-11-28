@@ -172,7 +172,7 @@ def _drain_boxes(drains, width, x, y, h, end) -> list[str]:
             continue
         if DRAIN_DELAY_SEC > 0:
             out.append(f"drawbox=x={x + wa}:y={y}:w={wb - wa}:h={h}:color={COLOR_DRAIN}:t=fill:"
-                       f"enable='between(t,{c},{min(c + DRAIN_DELAY_SEC, end)})'")
+                       f"enable='gte(t,{c})*lt(t,{min(c + DRAIN_DELAY_SEC, end)})'")
         step = DRAIN_SEC / DRAIN_STEPS
         for k in range(DRAIN_STEPS):
             a = round(c + DRAIN_DELAY_SEC + k * step, 3)
@@ -182,7 +182,7 @@ def _drain_boxes(drains, width, x, y, h, end) -> list[str]:
             dw = round((wb - wa) * (1 - k / DRAIN_STEPS))
             if dw > 0:
                 out.append(f"drawbox=x={x + wa}:y={y}:w={dw}:h={h}:color={COLOR_DRAIN}:t=fill:"
-                           f"enable='between(t,{a},{min(b, end)})'")
+                           f"enable='gte(t,{a})*lt(t,{min(b, end)})'")
     return out
 
 
@@ -215,7 +215,7 @@ def build_hp_bar_filters(timeline: HpTimeline, clip_start: float, clip_dur: floa
         texts = []
         font = _ff_path(assets["font"])
         for a, b, hp in segs:
-            win = f"enable='between(t,{round(a, 3)},{round(b, 3)})'"
+            win = f"enable='gte(t,{round(a, 3)})*lt(t,{round(b, 3)})'"
             wh = width(hp)
             if wh > 0:
                 boxes.append(f"drawbox=x={fill_x}:y={fill_y}:w={wh}:h={fill_h}:"
@@ -243,7 +243,7 @@ def build_hp_bar_filters(timeline: HpTimeline, clip_start: float, clip_dur: floa
     f = [f"drawbox=x={x0}:y={y0}:w={w}:h={BAR_H}:color={COLOR_BG}:t=fill"]
     f += _drain_boxes(drains, width, inner_x, inner_y, inner_h, end)
     for a, b, hp in segs:
-        win = f"enable='between(t,{round(a, 3)},{round(b, 3)})'"
+        win = f"enable='gte(t,{round(a, 3)})*lt(t,{round(b, 3)})'"
         wh = width(hp)
         if wh > 0:
             f.append(f"drawbox=x={inner_x}:y={inner_y}:w={wh}:h={inner_h}:"

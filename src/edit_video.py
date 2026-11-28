@@ -182,6 +182,7 @@ def build_filter_args(
     hp_overlay: dict | None = None,
     minimap: dict | None = None,
     hp_bar: str | None = None,
+    extra_vf: str | None = None,
 ) -> list[str]:
     """
     クリップ切り出し用の ffmpeg フィルタ引数を組み立てる。
@@ -201,6 +202,8 @@ def build_filter_args(
     if hp_bar:
         base = f"{base},{hp_bar}"
         hp_overlay = None  # 描き直したバーを使うので HUD は切り出さない
+    if extra_vf:
+        base = f"{base},{extra_vf}"   # 累計表示など、縦動画の上に重ねるもの
     if hp_overlay is None and minimap is None:
         return ["-vf", base]
 
@@ -353,6 +356,7 @@ def clip_and_crop(
     hp_overlay: dict | None = None,
     minimap: dict | None = None,
     hp_bar: str | None = None,
+    extra_vf: str | None = None,
 ) -> Path:
     """
     動画の指定区間を切り出し、中央を 9:16 にクロップして保存する。
@@ -378,7 +382,7 @@ def clip_and_crop(
             "-ss", str(max(0, start)),
             "-i", str(video_path),
             "-t", str(duration),
-            *build_filter_args(src_width, src_height, hp_overlay, minimap, hp_bar),
+            *build_filter_args(src_width, src_height, hp_overlay, minimap, hp_bar, extra_vf),
             *VIDEO_ARGS,
             *AUDIO_ARGS,
             "-y",
@@ -390,6 +394,19 @@ def clip_and_crop(
     return output_path
 
 
+def _totals_filter(totals: dict, start: float, duration: float) -> str:
+    """累計表示（src.totals）のフィルタ。アイコンが取れなければ空。"""
+    from src.totals import build_totals_filters
+    from src.wot_assets import ensure_battle_icons, ensure_hp_assets
+    cfg = (load_config().get("shorts") or {}).get("totals") or {}
+    icons = ensure_battle_icons()
+    if icons is None:
+        return ""
+    assets = ensure_hp_assets()
+    font = assets["font"] if assets else Path("C:/Windows/Fonts/bahnschrift.ttf")
+    return build_totals_filters(totals, start, duration, icons, font, int(cfg.get("y", 392)))
+
+
 def make_shorts(
     video_path: Path,
     events: list[HighlightEvent],
@@ -397,6 +414,7 @@ def make_shorts(
     positions: list[tuple[float, float, float]] | None = None,
     heat=None,
     hp_timeline=None,
+    totals=None,
 ) -> Path:
     """
     ハイライトイベントから YouTube Shorts 動画を生成する。
@@ -514,8 +532,11 @@ def make_shorts(
             from src.wot_assets import ensure_hp_assets
             assets = ensure_hp_assets() if hp_overlay.get("style", "game") == "game" else None
             hp_bar = build_hp_bar_filters(hp_timeline, start, duration, hp_overlay["dst"], assets=assets)
+        extra_vf = None
+        if totals:
+            extra_vf = _totals_filter(totals, start, duration) or None
         clip_and_crop(video_path, start, duration, clip_out,
-                      hp_overlay=hp_overlay, minimap=minimap, hp_bar=hp_bar)
+                      hp_overlay=hp_overlay, minimap=minimap, hp_bar=hp_bar, extra_vf=extra_vf)
         clip_paths.append(clip_out)
         note = "（初弾マップ）" if minimap else ""
         kinds = ", ".join(e.event_type for e in scene.events) or "-"

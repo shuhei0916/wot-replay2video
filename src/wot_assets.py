@@ -162,3 +162,79 @@ def ensure_hp_assets(wot: Path | None = None) -> dict | None:
         img = cv2.imread(str(src), cv2.IMREAD_UNCHANGED)
         cv2.imwrite(str(dst), cv2.resize(img, None, fx=k, fy=k, interpolation=cv2.INTER_NEAREST))
     return paths
+
+
+# ---------------------------------------------------------------------------
+# 戦闘画面のアイコン（累計表示用。2026-11-28）: battleAtlas から切り出して大きさを揃える
+#   damageDealt（与ダメ: 交差した矢印）/ damageBlockedByArmor（防いだダメ: 盾）/
+#   ribbonsAssistSpot（アシスト: 偵察の電波）
+# ---------------------------------------------------------------------------
+
+ICON_NAMES = {"damage": "damageDealt", "blocked": "damageBlockedByArmor", "assist": "ribbonsAssistSpot"}
+
+
+def _trim_alpha(img, threshold: int = 12):
+    """透明な余白を切り詰める（アルファが threshold を超える範囲の外接矩形）。"""
+    if img.ndim != 3 or img.shape[2] != 4:
+        return img
+    ys, xs = np.where(img[..., 3] > threshold)
+    if len(xs) == 0:
+        return img
+    return img[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+
+
+def _fit_square(img, size: int):
+    """縦横比を保って size×size の透明な正方形の中央に収める。"""
+    import cv2
+    h, w = img.shape[:2]
+    k = size / max(h, w)
+    nw, nh = max(1, round(w * k)), max(1, round(h * k))
+    small = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA if k < 1 else cv2.INTER_CUBIC)
+    out = np.zeros((size, size, img.shape[2]), np.uint8)
+    y0, x0 = (size - nh) // 2, (size - nw) // 2
+    out[y0:y0 + nh, x0:x0 + nw] = small
+    return out
+
+
+def ensure_battle_icons(size: int = 56, wot: Path | None = None) -> dict | None:
+    """累計表示のアイコン PNG（size×size、透過）を output/cache/<版>/ に用意して {種類: パス}。"""
+    import subprocess
+
+    import cv2
+
+    from src.config import find_ffmpeg, wot_client_version
+    wot = Path(wot) if wot is not None else wot_dir()
+    try:
+        version = wot_client_version()
+    except Exception:
+        version = "unknown"
+    d = CACHE_DIR / version
+    paths = {k: d / f"icon_{k}_{size}.png" for k in ICON_NAMES}
+    if all(p.exists() for p in paths.values()):
+        return paths
+    d.mkdir(parents=True, exist_ok=True)
+    xml = _find_member(wot, "gui/flash/atlases/battleAtlas.xml")
+    dds = _find_member(wot, "gui/flash/atlases/battleAtlas.dds")
+    ffmpeg = find_ffmpeg()
+    if xml is None or dds is None or ffmpeg is None:
+        return None
+    dds_path = d / "battleAtlas.dds"
+    dds_path.write_bytes(dds)
+    try:
+        for kind, name in ICON_NAMES.items():
+            rect = _atlas_rect(xml, name)
+            if rect is None:
+                return None
+            raw = d / f"icon_{kind}_raw.png"
+            r = subprocess.run([ffmpeg, "-v", "error", "-i", str(dds_path), "-vf",
+                                f"crop={rect[2]}:{rect[3]}:{rect[0]}:{rect[1]}", "-y", str(raw)],
+                               capture_output=True)
+            if r.returncode != 0:
+                return None
+            img = cv2.imread(str(raw), cv2.IMREAD_UNCHANGED)
+            img = _trim_alpha(img)  # 元画像は透明な余白が広く、そのまま縮めると小さく見える
+            cv2.imwrite(str(paths[kind]), _fit_square(img, size))
+            raw.unlink(missing_ok=True)
+    finally:
+        dds_path.unlink(missing_ok=True)
+    return paths
