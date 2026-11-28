@@ -7,7 +7,8 @@ from src.totals import TEXT_COLOR, build_totals_filters, totals_timeline
 
 REC = 1000.0
 V10 = Path(__file__).parent / "fixtures" / "mod_v10_t29_karelia.events.json"
-ICONS = {"damage": Path("d.png"), "blocked": Path("b.png"), "assist": Path("a.png")}
+ICONS = {"damage": Path("d.png"), "blocked": Path("b.png"), "assist_radio": Path("a.png"),
+         "assist_track": Path("at.png"), "assist_stun": Path("as.png")}
 
 
 def _be(t, name, amount):
@@ -62,3 +63,11 @@ class TestFilters:
 
     def test_empty(self):
         assert build_totals_filters({}, 0.0, 5.0, ICONS, Path("w.ttf"), 392) == ""
+
+
+def test_assist_icon_follows_dominant_type():
+    data = {"events": [_be(10, "RADIO_ASSIST", 50), _be(12, "TRACK_ASSIST", 200)]}
+    tl = totals_timeline(data, REC)
+    assert tl["_assist_icon"] == "assist_track"
+    f = build_totals_filters(tl, 0.0, 30.0, ICONS, Path("w.ttf"), 392)
+    assert "at.png" in f and "a.png'" not in f
