@@ -511,9 +511,9 @@ def make_shorts(
         hp_bar = None
         if hp_overlay is not None and hp_timeline is not None:
             from src.hp_bar import build_hp_bar_filters
-            from src.wot_assets import ensure_hp_mesh
-            hp_bar = build_hp_bar_filters(hp_timeline, start, duration, hp_overlay["dst"],
-                                          mesh_path=ensure_hp_mesh() if hp_overlay.get("mesh", True) else None)
+            from src.wot_assets import ensure_hp_assets
+            assets = ensure_hp_assets() if hp_overlay.get("style", "game") == "game" else None
+            hp_bar = build_hp_bar_filters(hp_timeline, start, duration, hp_overlay["dst"], assets=assets)
         clip_and_crop(video_path, start, duration, clip_out,
                       hp_overlay=hp_overlay, minimap=minimap, hp_bar=hp_bar)
         clip_paths.append(clip_out)

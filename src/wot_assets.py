@@ -74,3 +74,91 @@ def ensure_hp_mesh(wot: Path | None = None) -> Path | None:
                 cv2.imwrite(str(HP_MESH_PATH), img)
                 return HP_MESH_PATH
     return None
+
+
+# ---------------------------------------------------------------------------
+# HP バーの部品一式（ゲームと同じ組み立て。2026-11-28）
+#   ① 枠: 戦闘画面のアトラス（battleAtlas）の DamagePanel_bg 上部、行19〜37・列1〜227
+#   ② 塗り: プログラムで描く（src.hp_bar）
+#   ③ 網目: damagePanel.swf の 220×14（上の ensure_hp_mesh）
+#   ④ 数字: クライアント同梱の Warhelios-Regular.ttf（字幅がゲームの数字と一致）
+# 枠と網目はゲームの画素のまま整数倍（HP_SCALE）に最近傍で拡大して置く。
+# ---------------------------------------------------------------------------
+
+HP_SCALE = 4
+HP_FRAME_CROP = (1, 19, 227, 19)   # DamagePanel_bg 内の (x, y, 幅, 高さ)
+HP_FONT_MEMBER = "gui/gameface/fonts/Warhelios-Regular.ttf"   # 字幅がゲームの HP の数字と一致
+
+
+def _find_member(wot: Path, member: str) -> bytes | None:
+    for pkg in sorted((wot / "res" / "packages").glob("gui-part*.pkg")):
+        try:
+            z = zipfile.ZipFile(pkg)
+            if member in z.namelist():
+                return z.read(member)
+        except (OSError, zipfile.BadZipFile):
+            continue
+    return None
+
+
+def _atlas_rect(xml: bytes, name: str) -> tuple[int, int, int, int] | None:
+    import re
+    text = xml.decode("utf-8", errors="replace")
+    for block in re.findall(r"<SubTexture>(.*?)</SubTexture>", text, re.S):
+        m = re.search(r"<name>\s*(.*?)\s*</name>", block)
+        if m and m.group(1) == name:
+            vals = [int(re.search(rf"<{k}>\s*(\d+)\s*</{k}>", block).group(1))
+                    for k in ("x", "y", "width", "height")]
+            return tuple(vals)
+    return None
+
+
+def ensure_hp_assets(wot: Path | None = None) -> dict | None:
+    """
+    HP バーの部品（4倍の枠 PNG・4倍の網目 PNG・フォント TTF）を output/cache/<クライアント版>/
+    に用意してパスの辞書を返す。どれか取れなければ None（呼び出し側は簡易描画にする）。
+    """
+    import subprocess
+
+    import cv2
+
+    from src.config import find_ffmpeg, wot_client_version
+    wot = Path(wot) if wot is not None else wot_dir()
+    try:
+        version = wot_client_version()
+    except Exception:
+        version = "unknown"
+    d = CACHE_DIR / version
+    paths = {"frame": d / "hp_frame_x4.png", "mesh": d / "hp_mesh_x4.png",
+             "font": d / "Warhelios-Regular.ttf", "scale": HP_SCALE}
+    if all(Path(paths[k]).exists() for k in ("frame", "mesh", "font")):
+        return paths
+    d.mkdir(parents=True, exist_ok=True)
+
+    mesh = ensure_hp_mesh(wot)
+    font = _find_member(wot, HP_FONT_MEMBER)
+    xml = _find_member(wot, "gui/flash/atlases/battleAtlas.xml")
+    dds = _find_member(wot, "gui/flash/atlases/battleAtlas.dds")
+    if mesh is None or font is None or xml is None or dds is None:
+        return None
+    rect = _atlas_rect(xml, "DamagePanel_bg")
+    ffmpeg = find_ffmpeg()
+    if rect is None or ffmpeg is None:
+        return None
+
+    paths["font"].write_bytes(font)
+    dds_path = d / "battleAtlas.dds"
+    dds_path.write_bytes(dds)
+    fx, fy, fw, fh = HP_FRAME_CROP
+    frame_1x = d / "hp_frame.png"
+    r = subprocess.run([ffmpeg, "-v", "error", "-i", str(dds_path), "-vf",
+                        f"crop={fw}:{fh}:{rect[0] + fx}:{rect[1] + fy}", "-y", str(frame_1x)],
+                       capture_output=True)
+    dds_path.unlink(missing_ok=True)   # 14MB あるので残さない
+    if r.returncode != 0 or not frame_1x.exists():
+        return None
+    k = HP_SCALE
+    for src, dst in ((frame_1x, paths["frame"]), (mesh, paths["mesh"])):
+        img = cv2.imread(str(src), cv2.IMREAD_UNCHANGED)
+        cv2.imwrite(str(dst), cv2.resize(img, None, fx=k, fy=k, interpolation=cv2.INTER_NEAREST))
+    return paths

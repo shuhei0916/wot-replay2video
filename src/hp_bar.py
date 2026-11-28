@@ -135,29 +135,22 @@ def _ff_path(path: Path) -> str:
     return str(Path(path).resolve()).replace("\\", "/").replace(":", "\\:")
 
 
-def build_hp_bar_filters(timeline: HpTimeline, clip_start: float, clip_dur: float,
-                         dst: dict, frame_w: int = 1080, mesh_path: Path | None = None) -> str:
-    """
-    1 クリップ分の HP バーを描く ffmpeg フィルタ。時間はクリップ内の秒（0〜clip_dur）。
-    dst は shorts.hp_overlay.dst（w: 幅, y: 上端）。
-    mesh_path（WoT の網目模様。src.wot_assets.ensure_hp_mesh）があれば塗りの上に重ねて
-    ゲームと同じ質感にする（数値はその上に描く）。
-    """
-    w = int(dst["w"])
-    x0 = (frame_w - w) // 2
-    y0 = int(dst["y"])
-    inner_x, inner_y = x0 + BORDER, y0 + BORDER
-    inner_w, inner_h = w - 2 * BORDER, BAR_H - 2 * BORDER
-    m = timeline.max_hp
-    end = round(clip_dur, 3)
+# ゲームの部品で組み立てるときの配置（ゲームの画素単位。src.wot_assets.HP_SCALE 倍して使う）
+# 枠画像（227×19）の中で、網目（220×14）は (3, 2) に置く。網目の一番上の行は完全に透明なので、
+# 塗りはその1行下から13行だけにする（塗ると網目のかからない明るい線が1本出てしまうため）
+GAME_MESH_XY = (3, 2)
+GAME_FILL_Y = 3
+GAME_FILL_H = 13
+GAME_FILL_W = 220
+GAME_FONT_SIZE = 11.5        # ゲームの画素単位（4倍で46）
+GAME_TEXT_COLOR = "0xc4c4bc"  # ゲームの数字の灰色（録画では圧縮でやや暗く見える）
 
-    def width(hp: float) -> int:
-        return max(0, min(inner_w, round(inner_w * hp / m)))
 
-    # クリップ内で HP が一定の区間
-    segs: list[tuple[float, float, float]] = []   # (開始, 終了, HP)
+def _segments(timeline: HpTimeline, clip_start: float, end: float):
+    """クリップ内で HP が一定の区間 [(開始, 終了, HP)] と、被弾 [(時刻, 前の HP, 後の HP)]。"""
+    segs: list[tuple[float, float, float]] = []
+    drains: list[tuple[float, float, float]] = []
     cur_t, cur_hp = 0.0, timeline.hp_at(clip_start)
-    drains: list[tuple[float, float, float]] = []  # (被弾の時刻, 前の HP, 後の HP)
     for ts, v in timeline.changes:
         lt = round(ts - clip_start, 3)
         if lt <= 0 or lt >= end:
@@ -167,41 +160,95 @@ def build_hp_bar_filters(timeline: HpTimeline, clip_start: float, clip_dur: floa
             drains.append((lt, cur_hp, v))
             cur_t, cur_hp = lt, v
     segs.append((cur_t, end, cur_hp))
+    return segs, drains
 
-    f = [f"drawbox=x={x0}:y={y0}:w={w}:h={BAR_H}:color={COLOR_BG}:t=fill"]
-    # 削られた分（明るい色）: 被弾直後は前の HP の幅で残し、DRAIN_DELAY_SEC 後から段階的に縮める
+
+def _drain_boxes(drains, width, x, y, h, end) -> list[str]:
+    """削られた分（明るい色）: 被弾直後は前の HP の幅で残し、段階的に縮める。"""
+    out = []
     for c, before, after in drains:
         wb, wa = width(before), width(after)
         if wb <= wa:
             continue
-        hold_end = min(c + DRAIN_DELAY_SEC, end)
-        f.append(f"drawbox=x={inner_x + wa}:y={inner_y}:w={wb - wa}:h={inner_h}:"
-                 f"color={COLOR_DRAIN}:t=fill:enable='between(t,{c},{hold_end})'")
+        if DRAIN_DELAY_SEC > 0:
+            out.append(f"drawbox=x={x + wa}:y={y}:w={wb - wa}:h={h}:color={COLOR_DRAIN}:t=fill:"
+                       f"enable='between(t,{c},{min(c + DRAIN_DELAY_SEC, end)})'")
         step = DRAIN_SEC / DRAIN_STEPS
-        for k in range(1, DRAIN_STEPS):
-            a = round(c + DRAIN_DELAY_SEC + (k - 1) * step, 3)
+        for k in range(DRAIN_STEPS):
+            a = round(c + DRAIN_DELAY_SEC + k * step, 3)
             b = round(a + step, 3)
             if a >= end:
                 break
             dw = round((wb - wa) * (1 - k / DRAIN_STEPS))
             if dw > 0:
-                f.append(f"drawbox=x={inner_x + wa}:y={inner_y}:w={dw}:h={inner_h}:"
-                         f"color={COLOR_DRAIN}:t=fill:enable='between(t,{a},{min(b, end)})'")
-    # 残り HP の塗り
-    texts = []
+                out.append(f"drawbox=x={x + wa}:y={y}:w={dw}:h={h}:color={COLOR_DRAIN}:t=fill:"
+                           f"enable='between(t,{a},{min(b, end)})'")
+    return out
+
+
+def build_hp_bar_filters(timeline: HpTimeline, clip_start: float, clip_dur: float,
+                         dst: dict, frame_w: int = 1080, assets: dict | None = None) -> str:
+    """
+    1 クリップ分の HP バーを描く ffmpeg フィルタ。時間はクリップ内の秒（0〜clip_dur）。
+    dst は shorts.hp_overlay.dst（y: 上端。簡易描画では w: 幅も使う）。
+
+    assets（src.wot_assets.ensure_hp_assets）があれば、ゲームと同じ部品（枠・網目・フォント）
+    で組み立てる: 枠を置く → 塗り → 網目を重ねる → 数字。無ければ図形だけの簡易描画。
+    出力は「既存の映像の続きにカンマでつなげる」形（先頭はフィルタ）。
+    """
+    end = round(clip_dur, 3)
+    m = timeline.max_hp
+    segs, drains = _segments(timeline, clip_start, end)
+
+    if assets:
+        k = int(assets["scale"])
+        frame_wpx, frame_hpx = 227 * k, 19 * k
+        X = (frame_w - frame_wpx) // 2
+        Y = int(dst["y"])
+        fill_x, fill_y = X + GAME_MESH_XY[0] * k, Y + GAME_FILL_Y * k
+        fill_w, fill_h = GAME_FILL_W * k, GAME_FILL_H * k
+
+        def width(hp: float) -> int:
+            return max(0, min(fill_w, round(fill_w * hp / m)))
+
+        boxes = _drain_boxes(drains, width, fill_x, fill_y, fill_h, end)
+        texts = []
+        font = _ff_path(assets["font"])
+        for a, b, hp in segs:
+            win = f"enable='between(t,{round(a, 3)},{round(b, 3)})'"
+            wh = width(hp)
+            if wh > 0:
+                boxes.append(f"drawbox=x={fill_x}:y={fill_y}:w={wh}:h={fill_h}:"
+                             f"color={hp_color(hp / m, under_mesh=True)}:t=fill:{win}")
+            texts.append(f"drawtext=fontfile='{font}':text='{int(round(hp))}/{int(round(m))}':"
+                         f"fontsize={round(GAME_FONT_SIZE * k)}:fontcolor={GAME_TEXT_COLOR}:"
+                         f"shadowcolor=black@0.7:shadowx={k // 2}:shadowy={k // 2}:"
+                         f"x={X}+({frame_wpx}-text_w)/2:y={Y}+({frame_hpx}-text_h)/2:{win}")
+        return (f"null[hp0];movie='{_ff_path(assets['frame'])}'[hpf];[hp0][hpf]overlay={X}:{Y}"
+                + "".join("," + b for b in boxes)
+                + f"[hp1];movie='{_ff_path(assets['mesh'])}',format=rgba[hpm];"
+                f"[hp1][hpm]overlay={X + GAME_MESH_XY[0] * k}:{Y + GAME_MESH_XY[1] * k},"
+                + ",".join(texts))
+
+    # 簡易描画（部品が取れないとき）
+    w = int(dst["w"])
+    x0 = (frame_w - w) // 2
+    y0 = int(dst["y"])
+    inner_x, inner_y = x0 + BORDER, y0 + BORDER
+    inner_w, inner_h = w - 2 * BORDER, BAR_H - 2 * BORDER
+
+    def width(hp: float) -> int:
+        return max(0, min(inner_w, round(inner_w * hp / m)))
+
+    f = [f"drawbox=x={x0}:y={y0}:w={w}:h={BAR_H}:color={COLOR_BG}:t=fill"]
+    f += _drain_boxes(drains, width, inner_x, inner_y, inner_h, end)
     for a, b, hp in segs:
         win = f"enable='between(t,{round(a, 3)},{round(b, 3)})'"
         wh = width(hp)
         if wh > 0:
             f.append(f"drawbox=x={inner_x}:y={inner_y}:w={wh}:h={inner_h}:"
-                     f"color={hp_color(hp / m, under_mesh=mesh_path is not None)}:t=fill:{win}")
-        texts.append(f"drawtext=fontfile='{FONT}':text='{_fmt(hp)} / {_fmt(m)}':fontsize={FONT_SIZE}:"
-                     f"fontcolor=white:borderw=3:bordercolor=black@0.8:"
-                     f"x={x0}+({w}-text_w)/2:y={y0}+({BAR_H}-text_h)/2:{win}")
-    if mesh_path is None:
-        return ",".join(f + texts)
-    # 網目模様（半透明の黒い市松）を塗りの上に重ね、数値はその上に描く。
-    # 市松の目が崩れないよう最近傍で拡大する
-    return (",".join(f) + "[hpb];"
-            f"movie='{_ff_path(mesh_path)}',scale={inner_w}:{inner_h}:flags=neighbor,format=rgba[hpm];"
-            f"[hpb][hpm]overlay={inner_x}:{inner_y}," + ",".join(texts))
+                     f"color={hp_color(hp / m)}:t=fill:{win}")
+        f.append(f"drawtext=fontfile='{FONT}':text='{_fmt(hp)} / {_fmt(m)}':fontsize={FONT_SIZE}:"
+                 f"fontcolor=white:borderw=3:bordercolor=black@0.8:"
+                 f"x={x0}+({w}-text_w)/2:y={y0}+({BAR_H}-text_h)/2:{win}")
+    return ",".join(f)

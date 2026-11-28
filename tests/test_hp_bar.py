@@ -117,10 +117,17 @@ def test_under_mesh_color_is_brighter_to_compensate():
     assert g_under == round(g_plain / (1 - MESH_CENTER_ALPHA))
 
 
-def test_mesh_overlay_in_filter(tmp_path):
-    mesh = tmp_path / "hp_mesh.png"
-    mesh.write_bytes(b"x")
-    f = build_hp_bar_filters(HpTimeline(1000, []), 0.0, 5.0, DST, mesh_path=mesh)
-    assert "movie='" in f and "flags=neighbor" in f and "[hpb][hpm]overlay=107:304" in f
-    assert f.index("overlay=107:304") < f.index("drawtext")      # 数値は網目の上
-    assert f"color={hp_color(1.0, under_mesh=True)}" in f
+def test_game_style_assembles_client_parts(tmp_path):
+    # ゲームの部品で組み立てる: 枠を置く → 塗り → 網目 → 数字（4倍、227×19 → 908×76、中央寄せ）
+    from src.hp_bar import GAME_FILL_H, GAME_FILL_Y
+    assets = {"frame": tmp_path / "f.png", "mesh": tmp_path / "m.png", "font": tmp_path / "w.ttf", "scale": 4}
+    f = build_hp_bar_filters(HpTimeline(1200, [(2.0, 600.0)]), 0.0, 5.0, DST, assets=assets)
+    assert f.startswith("null[hp0];movie='")
+    assert "[hp0][hpf]overlay=86:300" in f                      # 枠: x=(1080-908)/2
+    assert "[hp1][hpm]overlay=98:308" in f                      # 網目: 枠内 (3,2)×4
+    assert f.index("[hpf]overlay") < f.index("drawbox") < f.index("[hpm]overlay") < f.index("drawtext")
+    # 網目の一番上の行（透明）を塗らない: 塗りは1行下から13行
+    assert f"y={300 + GAME_FILL_Y * 4}:w=880:h={GAME_FILL_H * 4}" in f
+    assert "text='1200/1200'" in f and "text='600/1200'" in f   # ゲームと同じ表記（カンマ・空白なし）
+    assert COLOR_DRAIN in f
+    assert f"color={hp_color(0.5, under_mesh=True)}" in f
